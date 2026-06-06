@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>World Cup 2026 — Schedule (Mountain Time)</title>
+<style>
+  :root{
+    --bg:#0b1020; --panel:#151c33; --panel2:#1b2440; --line:#2a3457;
+    --text:#eaf0ff; --muted:#93a0c4; --accent:#37d67a; --accent2:#ffd24a;
+    --live:#ff5a5f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:linear-gradient(180deg,#0b1020,#0d1430 60%,#0b1020);color:var(--text);min-height:100vh}
+  header{padding:28px 20px 10px;text-align:center}
+  h1{margin:0;font-size:clamp(22px,5vw,34px);letter-spacing:.5px}
+  .sub{color:var(--muted);margin-top:6px;font-size:14px}
+  .tz{display:inline-block;margin-top:8px;background:var(--panel2);border:1px solid var(--line);
+    padding:4px 12px;border-radius:20px;font-size:13px;color:var(--accent)}
+  .countdown{margin-top:10px;font-size:15px;color:var(--accent2);font-weight:600}
+  .controls{position:sticky;top:0;z-index:5;background:rgba(11,16,32,.92);backdrop-filter:blur(8px);
+    padding:14px 16px;border-bottom:1px solid var(--line)}
+  .wrap{max-width:920px;margin:0 auto}
+  .searchrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  #search{flex:1;min-width:200px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
+    background:var(--panel);color:var(--text);font-size:16px;outline:none}
+  #search:focus{border-color:var(--accent)}
+  .clearbtn{padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--panel);
+    color:var(--muted);cursor:pointer;font-size:14px}
+  .clearbtn:hover{color:var(--text)}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .chip{padding:7px 13px;border-radius:20px;border:1px solid var(--line);background:var(--panel);
+    color:var(--muted);cursor:pointer;font-size:13px;white-space:nowrap;user-select:none}
+  .chip.active{background:var(--accent);color:#08210f;border-color:var(--accent);font-weight:600}
+  .count{color:var(--muted);font-size:13px;margin:14px auto 0;max-width:920px;padding:0 16px}
+  main{max-width:920px;margin:0 auto;padding:8px 16px 60px}
+  .daygroup{margin-top:22px}
+  .dayhead{position:sticky;top:118px;background:rgba(13,20,48,.96);backdrop-filter:blur(6px);
+    padding:8px 12px;border-radius:10px;font-size:14px;font-weight:700;color:var(--accent2);
+    border:1px solid var(--line);margin-bottom:10px}
+  .match{display:grid;grid-template-columns:74px 1fr auto;gap:12px;align-items:center;
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:9px}
+  .match:hover{border-color:#3a4670}
+  .time{font-weight:700;font-size:15px;text-align:center;line-height:1.25}
+  .time .ampm{font-size:11px;color:var(--muted);display:block}
+  .teams{font-size:16px;font-weight:600;line-height:1.4}
+  .teams .vs{color:var(--muted);font-weight:400;margin:0 6px;font-size:13px}
+  .teams a.team{color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted)}
+  .teams a.team:hover{color:var(--accent);border-bottom-color:var(--accent)}
+  .meta{font-size:12px;color:var(--muted);margin-top:3px}
+  .badge{justify-self:end;text-align:right}
+  .stage{display:inline-block;padding:3px 9px;border-radius:8px;font-size:11px;font-weight:700;
+    background:var(--panel2);border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .stage.ko{color:var(--accent2);border-color:#5a4a1a}
+  .flag{font-size:18px;margin-right:4px}
+  .hl{background:rgba(55,214,122,.18);outline:1px solid var(--accent)}
+  .empty{text-align:center;color:var(--muted);padding:50px 20px;font-size:15px}
+  .foot{text-align:center;color:var(--muted);font-size:12px;padding:30px 16px 50px}
+  @media(max-width:560px){
+    .match{grid-template-columns:64px 1fr;}
+    .badge{grid-column:1/3;justify-self:start;margin-top:2px}
+    .dayhead{top:150px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🏆 FIFA World Cup 2026</h1>
+  <div class="sub">USA · Canada · Mexico — 48 teams, 104 matches</div>
+  <div class="tz">🕐 All times shown in Mountain Time (Denver, MDT)</div>
+  <div class="countdown" id="countdown"></div>
+</header>
+
+<div class="controls">
+  <div class="wrap">
+    <div class="searchrow">
+      <input id="search" type="text" placeholder="Search by team… (e.g. Mexico, Brazil, USA)" autocomplete="off">
+      <button class="clearbtn" id="clear">Clear</button>
+    </div>
+    <div class="chips" id="chips">
+      <span class="chip active" data-f="all">All</span>
+      <span class="chip" data-f="upcoming">Upcoming</span>
+      <span class="chip" data-f="Group">Group stage</span>
+      <span class="chip" data-f="Round of 32">Round of 32</span>
+      <span class="chip" data-f="Round of 16">Round of 16</span>
+      <span class="chip" data-f="Quarter">Quarter-finals</span>
+      <span class="chip" data-f="Semi">Semi-finals</span>
+      <span class="chip" data-f="Final">Final</span>
+    </div>
+  </div>
+</div>
+
+<div class="count" id="count"></div>
+<main id="list"></main>
+<div class="foot">
+  Schedule per official FIFA fixtures. Kickoff times stored in UTC and converted to America/Denver in your browser.<br>
+  Tap any team name to open its official FIFA.com page. Knockout matchups (Round of 32 onward) show placeholders until group results are decided.
+</div>
+
+<script>
+const FLAGS={
+ "Mexico":"🇲🇽","South Africa":"🇿🇦","South Korea":"🇰🇷","Czechia":"🇨🇿","Canada":"🇨🇦",
+ "Bosnia and Herzegovina":"🇧🇦","Qatar":"🇶🇦","Switzerland":"🇨🇭","Brazil":"🇧🇷","Morocco":"🇲🇦",
+ "Haiti":"🇭🇹","Scotland":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","USA":"🇺🇸","Paraguay":"🇵🇾","Australia":"🇦🇺","Türkiye":"🇹🇷",
+ "Germany":"🇩🇪","Curaçao":"🇨🇼","Ivory Coast":"🇨🇮","Ecuador":"🇪🇨","Netherlands":"🇳🇱","Japan":"🇯🇵",
+ "Sweden":"🇸🇪","Tunisia":"🇹🇳","Spain":"🇪🇸","Cape Verde":"🇨🇻","Saudi Arabia":"🇸🇦","Uruguay":"🇺🇾",
+ "Belgium":"🇧🇪","Egypt":"🇪🇬","Iran":"🇮🇷","New Zealand":"🇳🇿","France":"🇫🇷","Senegal":"🇸🇳",
+ "Iraq":"🇮🇶","Norway":"🇳🇴","Argentina":"🇦🇷","Algeria":"🇩🇿","Austria":"🇦🇹","Jordan":"🇯🇴",
+ "Portugal":"🇵🇹","DR Congo":"🇨🇩","Uzbekistan":"🇺🇿","Colombia":"🇨🇴","England":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","Croatia":"🇭🇷",
+ "Ghana":"🇬🇭","Panama":"🇵🇦"
+};
+
+// utc = kickoff in UTC; rendered to Mountain Time client-side. s=stage label, v=venue
+const M=[
+ {n:1,utc:"2026-06-11T19:00:00Z",a:"Mexico",b:"South Africa",s:"Group A",v:"Mexico City — Estadio Azteca"},
+ {n:2,utc:"2026-06-12T02:00:00Z",a:"South Korea",b:"Czechia",s:"Group A",v:"Guadalajara — Estadio Akron"},
+ {n:3,utc:"2026-06-12T19:00:00Z",a:"Canada",b:"Bosnia and Herzegovina",s:"Group B",v:"Toronto — BMO Field"},
+ {n:4,utc:"2026-06-13T01:00:00Z",a:"USA",b:"Paraguay",s:"Group D",v:"Los Angeles — SoFi Stadium"},
+ {n:5,utc:"2026-06-13T19:00:00Z",a:"Qatar",b:"Switzerland",s:"Group B",v:"SF Bay Area — Levi's Stadium"},
+ {n:6,utc:"2026-06-13T22:00:00Z",a:"Brazil",b:"Morocco",s:"Group C",v:"New York/NJ — MetLife Stadium"},
+ {n:7,utc:"2026-06-14T01:00:00Z",a:"Haiti",b:"Scotland",s:"Group C",v:"Boston — Gillette Stadium"},
+ {n:8,utc:"2026-06-14T04:00:00Z",a:"Australia",b:"Türkiye",s:"Group D",v:"Vancouver — BC Place"},
+ {n:9,utc:"2026-06-14T17:00:00Z",a:"Germany",b:"Curaçao",s:"Group E",v:"Houston — NRG Stadium"},
+ {n:10,utc:"2026-06-14T20:00:00Z",a:"Netherlands",b:"Japan",s:"Group F",v:"Dallas — AT&T Stadium"},
+ {n:11,utc:"2026-06-14T23:00:00Z",a:"Ivory Coast",b:"Ecuador",s:"Group E",v:"Philadelphia — Lincoln Financial Field"},
+ {n:12,utc:"2026-06-15T02:00:00Z",a:"Sweden",b:"Tunisia",s:"Group F",v:"Monterrey — Estadio BBVA"},
+ {n:13,utc:"2026-06-15T16:00:00Z",a:"Spain",b:"Cape Verde",s:"Group G",v:"Atlanta — Mercedes-Benz Stadium"},
+ {n:14,utc:"2026-06-15T19:00:00Z",a:"Belgium",b:"Egypt",s:"Group H",v:"Seattle — Lumen Field"},
+ {n:15,utc:"2026-06-15T22:00:00Z",a:"Saudi Arabia",b:"Uruguay",s:"Group G",v:"Miami — Hard Rock Stadium"},
+ {n:16,utc:"2026-06-16T01:00:00Z",a:"Iran",b:"New Zealand",s:"Group H",v:"Los Angeles — SoFi Stadium"},
+ {n:17,utc:"2026-06-16T19:00:00Z",a:"France",b:"Senegal",s:"Group I",v:"New York/NJ — MetLife Stadium"},
+ {n:18,utc:"2026-06-16T22:00:00Z",a:"Iraq",b:"Norway",s:"Group I",v:"Boston — Gillette Stadium"},
+ {n:19,utc:"2026-06-17T01:00:00Z",a:"Argentina",b:"Algeria",s:"Group J",v:"Kansas City — Arrowhead Stadium"},
+ {n:20,utc:"2026-06-17T04:00:00Z",a:"Austria",b:"Jordan",s:"Group J",v:"SF Bay Area — Levi's Stadium"},
+ {n:21,utc:"2026-06-17T17:00:00Z",a:"Portugal",b:"DR Congo",s:"Group K",v:"Houston — NRG Stadium"},
+ {n:22,utc:"2026-06-17T20:00:00Z",a:"England",b:"Croatia",s:"Group L",v:"Dallas — AT&T Stadium"},
+ {n:23,utc:"2026-06-17T23:00:00Z",a:"Ghana",b:"Panama",s:"Group L",v:"Toronto — BMO Field"},
+ {n:24,utc:"2026-06-18T02:00:00Z",a:"Uzbekistan",b:"Colombia",s:"Group K",v:"Mexico City — Estadio Azteca"},
+ {n:25,utc:"2026-06-18T16:00:00Z",a:"Czechia",b:"South Africa",s:"Group A",v:"Atlanta — Mercedes-Benz Stadium"},
+ {n:26,utc:"2026-06-18T19:00:00Z",a:"Switzerland",b:"Bosnia and Herzegovina",s:"Group B",v:"Los Angeles — SoFi Stadium"},
+ {n:27,utc:"2026-06-18T22:00:00Z",a:"Canada",b:"Qatar",s:"Group B",v:"Vancouver — BC Place"},
+ {n:28,utc:"2026-06-19T01:00:00Z",a:"Mexico",b:"South Korea",s:"Group A",v:"Guadalajara — Estadio Akron"},
+ {n:29,utc:"2026-06-19T19:00:00Z",a:"USA",b:"Australia",s:"Group D",v:"Seattle — Lumen Field"},
+ {n:30,utc:"2026-06-19T22:00:00Z",a:"Scotland",b:"Morocco",s:"Group C",v:"Boston — Gillette Stadium"},
+ {n:31,utc:"2026-06-20T00:30:00Z",a:"Brazil",b:"Haiti",s:"Group C",v:"Philadelphia — Lincoln Financial Field"},
+ {n:32,utc:"2026-06-20T04:00:00Z",a:"Türkiye",b:"Paraguay",s:"Group D",v:"SF Bay Area — Levi's Stadium"},
+ {n:33,utc:"2026-06-20T17:00:00Z",a:"Netherlands",b:"Sweden",s:"Group F",v:"Houston — NRG Stadium"},
+ {n:34,utc:"2026-06-20T20:00:00Z",a:"Germany",b:"Ivory Coast",s:"Group E",v:"Toronto — BMO Field"},
+ {n:35,utc:"2026-06-21T00:00:00Z",a:"Ecuador",b:"Curaçao",s:"Group E",v:"Kansas City — Arrowhead Stadium"},
+ {n:36,utc:"2026-06-21T04:00:00Z",a:"Tunisia",b:"Japan",s:"Group F",v:"Monterrey — Estadio BBVA"},
+ {n:37,utc:"2026-06-21T16:00:00Z",a:"Spain",b:"Saudi Arabia",s:"Group G",v:"Atlanta — Mercedes-Benz Stadium"},
+ {n:38,utc:"2026-06-21T19:00:00Z",a:"Belgium",b:"Iran",s:"Group H",v:"Los Angeles — SoFi Stadium"},
+ {n:39,utc:"2026-06-21T22:00:00Z",a:"Uruguay",b:"Cape Verde",s:"Group G",v:"Miami — Hard Rock Stadium"},
+ {n:40,utc:"2026-06-22T01:00:00Z",a:"New Zealand",b:"Egypt",s:"Group H",v:"Vancouver — BC Place"},
+ {n:41,utc:"2026-06-22T17:00:00Z",a:"Argentina",b:"Austria",s:"Group J",v:"Dallas — AT&T Stadium"},
+ {n:42,utc:"2026-06-22T21:00:00Z",a:"France",b:"Iraq",s:"Group I",v:"Philadelphia — Lincoln Financial Field"},
+ {n:43,utc:"2026-06-23T00:00:00Z",a:"Norway",b:"Senegal",s:"Group I",v:"New York/NJ — MetLife Stadium"},
+ {n:44,utc:"2026-06-23T03:00:00Z",a:"Jordan",b:"Algeria",s:"Group J",v:"SF Bay Area — Levi's Stadium"},
+ {n:45,utc:"2026-06-23T17:00:00Z",a:"Portugal",b:"Uzbekistan",s:"Group K",v:"Houston — NRG Stadium"},
+ {n:46,utc:"2026-06-23T20:00:00Z",a:"England",b:"Ghana",s:"Group L",v:"Boston — Gillette Stadium"},
+ {n:47,utc:"2026-06-23T23:00:00Z",a:"Panama",b:"Croatia",s:"Group L",v:"Toronto — BMO Field"},
+ {n:48,utc:"2026-06-24T02:00:00Z",a:"Colombia",b:"DR Congo",s:"Group K",v:"Guadalajara — Estadio Akron"},
+ {n:49,utc:"2026-06-24T19:00:00Z",a:"Switzerland",b:"Canada",s:"Group B",v:"Vancouver — BC Place"},
+ {n:50,utc:"2026-06-24T19:00:00Z",a:"Bosnia and Herzegovina",b:"Qatar",s:"Group B",v:"Seattle — Lumen Field"},
+ {n:51,utc:"2026-06-24T22:00:00Z",a:"Scotland",b:"Brazil",s:"Group C",v:"Miami — Hard Rock Stadium"},
+ {n:52,utc:"2026-06-24T22:00:00Z",a:"Morocco",b:"Haiti",s:"Group C",v:"Atlanta — Mercedes-Benz Stadium"},
+ {n:53,utc:"2026-06-25T01:00:00Z",a:"Czechia",b:"Mexico",s:"Group A",v:"Mexico City — Estadio Azteca"},
+ {n:54,utc:"2026-06-25T01:00:00Z",a:"South Africa",b:"South Korea",s:"Group A",v:"Monterrey — Estadio BBVA"},
+ {n:55,utc:"2026-06-25T20:00:00Z",a:"Curaçao",b:"Ivory Coast",s:"Group E",v:"Philadelphia — Lincoln Financial Field"},
+ {n:56,utc:"2026-06-25T20:00:00Z",a:"Ecuador",b:"Germany",s:"Group E",v:"New York/NJ — MetLife Stadium"},
+ {n:57,utc:"2026-06-25T23:00:00Z",a:"Japan",b:"Sweden",s:"Group F",v:"Dallas — AT&T Stadium"},
+ {n:58,utc:"2026-06-25T23:00:00Z",a:"Tunisia",b:"Netherlands",s:"Group F",v:"Kansas City — Arrowhead Stadium"},
+ {n:59,utc:"2026-06-26T02:00:00Z",a:"Türkiye",b:"USA",s:"Group D",v:"Los Angeles — SoFi Stadium"},
+ {n:60,utc:"2026-06-26T02:00:00Z",a:"Paraguay",b:"Australia",s:"Group D",v:"SF Bay Area — Levi's Stadium"},
+ {n:61,utc:"2026-06-26T19:00:00Z",a:"Norway",b:"France",s:"Group I",v:"Boston — Gillette Stadium"},
+ {n:62,utc:"2026-06-26T19:00:00Z",a:"Senegal",b:"Iraq",s:"Group I",v:"Toronto — BMO Field"},
+ {n:63,utc:"2026-06-27T00:00:00Z",a:"Cape Verde",b:"Saudi Arabia",s:"Group G",v:"Houston — NRG Stadium"},
+ {n:64,utc:"2026-06-27T00:00:00Z",a:"Uruguay",b:"Spain",s:"Group G",v:"Guadalajara — Estadio Akron"},
+ {n:65,utc:"2026-06-27T03:00:00Z",a:"Egypt",b:"Iran",s:"Group H",v:"Seattle — Lumen Field"},
+ {n:66,utc:"2026-06-27T03:00:00Z",a:"New Zealand",b:"Belgium",s:"Group H",v:"Vancouver — BC Place"},
+ {n:67,utc:"2026-06-27T21:00:00Z",a:"Panama",b:"England",s:"Group L",v:"New York/NJ — MetLife Stadium"},
+ {n:68,utc:"2026-06-27T21:00:00Z",a:"Croatia",b:"Ghana",s:"Group L",v:"Philadelphia — Lincoln Financial Field"},
+ {n:69,utc:"2026-06-27T23:30:00Z",a:"Colombia",b:"Portugal",s:"Group K",v:"Miami — Hard Rock Stadium"},
+ {n:70,utc:"2026-06-27T23:30:00Z",a:"DR Congo",b:"Uzbekistan",s:"Group K",v:"Atlanta — Mercedes-Benz Stadium"},
+ {n:71,utc:"2026-06-28T02:00:00Z",a:"Algeria",b:"Austria",s:"Group J",v:"Kansas City — Arrowhead Stadium"},
+ {n:72,utc:"2026-06-28T02:00:00Z",a:"Jordan",b:"Argentina",s:"Group J",v:"Dallas — AT&T Stadium"},
+ {n:73,utc:"2026-06-28T19:00:00Z",a:"Runner-up A",b:"Runner-up B",s:"Round of 32",v:"Los Angeles — SoFi Stadium"},
+ {n:74,utc:"2026-06-29T17:00:00Z",a:"Winner C",b:"Runner-up F",s:"Round of 32",v:"Houston — NRG Stadium"},
+ {n:75,utc:"2026-06-29T20:30:00Z",a:"Winner E",b:"3rd A/B/C/D/F",s:"Round of 32",v:"Boston — Gillette Stadium"},
+ {n:76,utc:"2026-06-30T01:00:00Z",a:"Winner F",b:"Runner-up C",s:"Round of 32",v:"Monterrey — Estadio BBVA"},
+ {n:77,utc:"2026-06-30T17:00:00Z",a:"Runner-up E",b:"Runner-up I",s:"Round of 32",v:"Dallas — AT&T Stadium"},
+ {n:78,utc:"2026-06-30T21:00:00Z",a:"Winner I",b:"3rd C/D/F/G/H",s:"Round of 32",v:"New York/NJ — MetLife Stadium"},
+ {n:79,utc:"2026-07-01T01:00:00Z",a:"Winner A",b:"3rd C/E/F/H/I",s:"Round of 32",v:"Mexico City — Estadio Azteca"},
+ {n:80,utc:"2026-07-01T16:00:00Z",a:"Winner L",b:"3rd E/H/I/J/K",s:"Round of 32",v:"Atlanta — Mercedes-Benz Stadium"},
+ {n:81,utc:"2026-07-01T20:00:00Z",a:"Winner G",b:"3rd A/E/H/I/J",s:"Round of 32",v:"Seattle — Lumen Field"},
+ {n:82,utc:"2026-07-02T00:00:00Z",a:"Winner D",b:"3rd B/E/F/I/J",s:"Round of 32",v:"SF Bay Area — Levi's Stadium"},
+ {n:83,utc:"2026-07-02T19:00:00Z",a:"Winner H",b:"Runner-up J",s:"Round of 32",v:"Los Angeles — SoFi Stadium"},
+ {n:84,utc:"2026-07-02T23:00:00Z",a:"Runner-up K",b:"Runner-up L",s:"Round of 32",v:"Toronto — BMO Field"},
+ {n:85,utc:"2026-07-03T03:00:00Z",a:"Winner B",b:"3rd E/F/G/I/J",s:"Round of 32",v:"Vancouver — BC Place"},
+ {n:86,utc:"2026-07-03T18:00:00Z",a:"Runner-up D",b:"Runner-up G",s:"Round of 32",v:"Dallas — AT&T Stadium"},
+ {n:87,utc:"2026-07-03T22:00:00Z",a:"Winner J",b:"Runner-up H",s:"Round of 32",v:"Miami — Hard Rock Stadium"},
+ {n:88,utc:"2026-07-04T01:30:00Z",a:"Winner K",b:"3rd D/E/I/J/L",s:"Round of 32",v:"Kansas City — Arrowhead Stadium"},
+ {n:89,utc:"2026-07-04T17:00:00Z",a:"Winners 74 v 77",b:"",s:"Round of 16",v:"Houston — NRG Stadium"},
+ {n:90,utc:"2026-07-04T21:00:00Z",a:"Winners 73 v 75",b:"",s:"Round of 16",v:"Philadelphia — Lincoln Financial Field"},
+ {n:91,utc:"2026-07-05T20:00:00Z",a:"Winners 76 v 78",b:"",s:"Round of 16",v:"New York/NJ — MetLife Stadium"},
+ {n:92,utc:"2026-07-06T00:00:00Z",a:"Winners 79 v 80",b:"",s:"Round of 16",v:"Mexico City — Estadio Azteca"},
+ {n:93,utc:"2026-07-06T19:00:00Z",a:"Winners 83 v 84",b:"",s:"Round of 16",v:"Dallas — AT&T Stadium"},
+ {n:94,utc:"2026-07-07T00:00:00Z",a:"Winners 81 v 82",b:"",s:"Round of 16",v:"Seattle — Lumen Field"},
+ {n:95,utc:"2026-07-07T16:00:00Z",a:"Winners 86 v 88",b:"",s:"Round of 16",v:"Atlanta — Mercedes-Benz Stadium"},
+ {n:96,utc:"2026-07-07T20:00:00Z",a:"Winners 85 v 87",b:"",s:"Round of 16",v:"Vancouver — BC Place"},
+ {n:97,utc:"2026-07-09T20:00:00Z",a:"Winners 89 v 90",b:"",s:"Quarter-final",v:"Boston — Gillette Stadium"},
+ {n:98,utc:"2026-07-10T19:00:00Z",a:"Winners 93 v 94",b:"",s:"Quarter-final",v:"Los Angeles — SoFi Stadium"},
+ {n:99,utc:"2026-07-11T21:00:00Z",a:"Winners 91 v 92",b:"",s:"Quarter-final",v:"Miami — Hard Rock Stadium"},
+ {n:100,utc:"2026-07-12T01:00:00Z",a:"Winners 95 v 96",b:"",s:"Quarter-final",v:"Kansas City — Arrowhead Stadium"},
+ {n:101,utc:"2026-07-14T19:00:00Z",a:"Winners 97 v 98",b:"",s:"Semi-final",v:"Dallas — AT&T Stadium"},
+ {n:102,utc:"2026-07-15T19:00:00Z",a:"Winners 99 v 100",b:"",s:"Semi-final",v:"Atlanta — Mercedes-Benz Stadium"},
+ {n:103,utc:"2026-07-18T21:00:00Z",a:"Losers 101 v 102",b:"",s:"Third-place",v:"Miami — Hard Rock Stadium"},
+ {n:104,utc:"2026-07-19T19:00:00Z",a:"Winners 101 v 102",b:"",s:"Final",v:"New York/NJ — MetLife Stadium"}
+];
+
+const TZ="America/Denver";
+const dayFmt=new Intl.DateTimeFormat("en-US",{timeZone:TZ,weekday:"long",month:"long",day:"numeric"});
+const timeFmt=new Intl.DateTimeFormat("en-US",{timeZone:TZ,hour:"numeric",minute:"2-digit"});
+const dayKeyFmt=new Intl.DateTimeFormat("en-CA",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit"});
+
+// FIFA.com team-page slugs. Default = lowercase with hyphens; these are the exceptions.
+const FIFA_BASE="https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/teams/";
+const SLUGS={
+ "South Korea":"korea-republic","Ivory Coast":"cote-d-ivoire","Cape Verde":"cabo-verde",
+ "DR Congo":"congo-dr","Iran":"ir-iran","Türkiye":"turkiye","Curaçao":"curacao","USA":"usa"
+};
+function slug(t){return SLUGS[t]||t.toLowerCase().replace(/\s+/g,"-");}
+function flag(t){return FLAGS[t]?`<span class="flag">${FLAGS[t]}</span>`:"";}
+// Real teams (present in FLAGS) become links to their FIFA page; placeholders stay plain text.
+function teamHtml(t){
+  if(FLAGS[t]) return `${flag(t)}<a class="team" href="${FIFA_BASE}${slug(t)}/team-news" target="_blank" rel="noopener">${t}</a>`;
+  return `${flag(t)}${t}`;
+}
+function isKO(s){return !s.startsWith("Group");}
+
+let activeFilter="all";
+let query="";
+
+function matchPasses(m){
+  if(query){
+    const q=query.toLowerCase();
+    if(!(m.a.toLowerCase().includes(q)||m.b.toLowerCase().includes(q))) return false;
+  }
+  if(activeFilter==="all") return true;
+  if(activeFilter==="upcoming") return new Date(m.utc).getTime()>=Date.now();
+  if(activeFilter==="Group") return m.s.startsWith("Group");
+  if(activeFilter==="Quarter") return m.s.startsWith("Quarter");
+  if(activeFilter==="Semi") return m.s.startsWith("Semi");
+  return m.s===activeFilter;
+}
+
+function render(){
+  const list=document.getElementById("list");
+  const filtered=M.filter(matchPasses);
+  document.getElementById("count").textContent=
+    `${filtered.length} match${filtered.length===1?"":"es"}`+(query?` matching “${query}”`:"");
+  if(!filtered.length){
+    list.innerHTML=`<div class="empty">No matches found.<br>Try another team name or clear the filters.</div>`;
+    return;
+  }
+  let html="",curDay="";
+  for(const m of filtered){
+    const d=new Date(m.utc);
+    const dk=dayKeyFmt.format(d);
+    if(dk!==curDay){
+      if(curDay)html+="</div>";
+      html+=`<div class="daygroup"><div class="dayhead">${dayFmt.format(d)}</div>`;
+      curDay=dk;
+    }
+    const t=timeFmt.format(d).replace(/\s?([AP]M)/,"|$1").split("|");
+    const teams=m.b
+      ? `${teamHtml(m.a)}<span class="vs">vs</span>${teamHtml(m.b)}`
+      : `<span style="color:var(--muted)">${m.a}</span>`;
+    const ko=isKO(m.s)?" ko":"";
+    html+=`<div class="match">
+      <div class="time">${t[0]}<span class="ampm">${(t[1]||"").trim()} MT</span></div>
+      <div><div class="teams">${teams}</div><div class="meta">📍 ${m.v} · Match ${m.n}</div></div>
+      <div class="badge"><span class="stage${ko}">${m.s}</span></div>
+    </div>`;
+  }
+  html+="</div>";
+  list.innerHTML=html;
+}
+
+// countdown to opening match
+function countdown(){
+  const start=new Date("2026-06-11T19:00:00Z").getTime();
+  const diff=start-Date.now();
+  const el=document.getElementById("countdown");
+  if(diff<=0){el.textContent="⚽ The tournament is underway!";return;}
+  const d=Math.floor(diff/864e5),h=Math.floor(diff%864e5/36e5),mi=Math.floor(diff%36e5/6e4);
+  el.textContent=`Kickoff in ${d}d ${h}h ${mi}m — Mexico vs South Africa`;
+}
+
+document.getElementById("search").addEventListener("input",e=>{query=e.target.value.trim();render();});
+document.getElementById("clear").addEventListener("click",()=>{
+  query="";document.getElementById("search").value="";
+  activeFilter="all";
+  document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("active",c.dataset.f==="all"));
+  render();
+});
+document.querySelectorAll(".chip").forEach(c=>{
+  c.addEventListener("click",()=>{
+    activeFilter=c.dataset.f;
+    document.querySelectorAll(".chip").forEach(x=>x.classList.remove("active"));
+    c.classList.add("active");
+    render();
+  });
+});
+
+countdown();setInterval(countdown,60000);
+render();
+</script>
+</body>
+</html>
