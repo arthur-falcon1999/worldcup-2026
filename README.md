@@ -7,3 +7,7 @@ A single-page schedule for the 2026 FIFA World Cup (USA · Canada · Mexico), wi
 ### **https://arthur-falcon1999.github.io/worldcup-2026/**
 
 That link is the live site — share it with anyone. The page is a single self-contained `index.html` (all styles, scripts, and fixtures inline), hosted free via GitHub Pages.
+
+## 📄 How it works
+
+See [how-it-works.md](how-it-works.md) for a short plain-English write-up of what the app does and how it was built.
