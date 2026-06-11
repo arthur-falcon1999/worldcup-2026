@@ -40,8 +40,12 @@
     padding:8px 12px;border-radius:10px;font-size:14px;font-weight:700;color:var(--accent2);
     border:1px solid var(--line);margin-bottom:10px}
   .match{display:grid;grid-template-columns:74px 1fr auto;gap:12px;align-items:center;
-    background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:9px}
-  .match:hover{border-color:#3a4670}
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:9px;
+    cursor:pointer;position:relative}
+  .match:hover{border-color:#3a4670;background:var(--panel2)}
+  .match .openhint{position:absolute;top:8px;right:10px;font-size:11px;color:var(--muted);opacity:0;
+    transition:opacity .15s;pointer-events:none}
+  .match:hover .openhint{opacity:.85}
   .time{font-weight:700;font-size:15px;text-align:center;line-height:1.25}
   .time .ampm{font-size:11px;color:var(--muted);display:block}
   .teams{font-size:16px;font-weight:600;line-height:1.4}
@@ -58,6 +62,15 @@
   .hl{background:rgba(55,214,122,.18);outline:1px solid var(--accent)}
   .empty{text-align:center;color:var(--muted);padding:50px 20px;font-size:15px}
   .foot{text-align:center;color:var(--muted);font-size:12px;padding:30px 16px 50px}
+  .score{font-weight:800;font-size:17px;margin:0 5px;color:var(--text)}
+  .score.win{color:var(--accent)}
+  .dash{color:var(--muted)}
+  .livematch{border-color:var(--live);box-shadow:0 0 0 1px rgba(255,90,95,.30)}
+  .livemin{color:var(--live);font-weight:800;font-size:16px}
+  .livelbl{color:var(--live);font-weight:700;letter-spacing:.4px;animation:pulse 1.4s ease-in-out infinite}
+  .ftlbl{color:var(--accent);font-weight:800}
+  .livestatus{margin-top:8px;font-size:12px;color:var(--muted)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
   @media(max-width:560px){
     .match{grid-template-columns:64px 1fr;}
     .badge{grid-column:1/3;justify-self:start;margin-top:2px}
@@ -71,6 +84,7 @@
   <div class="sub">USA · Canada · Mexico — 48 teams, 104 matches</div>
   <div class="tz">🕐 All times shown in Mountain Time (Denver, MDT)</div>
   <div class="countdown" id="countdown"></div>
+  <div class="livestatus" id="livestatus"></div>
 </header>
 
 <div class="controls">
@@ -265,6 +279,86 @@ function teamHtml(t){
 }
 function isKO(s){return !s.startsWith("Group");}
 
+// ---- Live scores via ESPN's public scoreboard (no key, CORS-open) ----
+// Match ESPN games to our fixtures by team pair (group stage) or exact kickoff time (knockouts).
+function normTeam(s){return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"")
+  .replace(/[^a-z0-9]+/g," ").trim();}
+// ESPN names that differ from ours; everything else matches after normalisation.
+const TEAM_ALIASES={
+ "united states":"USA","congo dr":"DR Congo","bosnia herzegovina":"Bosnia and Herzegovina",
+ "korea republic":"South Korea","czech republic":"Czechia","turkey":"Türkiye",
+ "cabo verde":"Cape Verde","ir iran":"Iran","cote d ivoire":"Ivory Coast"
+};
+const NORM_TEAM={};
+Object.keys(FLAGS).forEach(t=>{NORM_TEAM[normTeam(t)]=t;});
+function canonTeam(name){if(!name)return null;const n=normTeam(name);return TEAM_ALIASES[n]||NORM_TEAM[n]||null;}
+
+let LIVE=new Map();
+function buildLive(events,target){
+  for(const e of (events||[])){
+    const comp=e.competitions&&e.competitions[0];if(!comp)continue;
+    const stt=comp.status&&comp.status.type;if(!stt)continue;
+    const cs=comp.competitors||[];
+    const home=cs.find(c=>c.homeAway==="home")||cs[0];
+    const away=cs.find(c=>c.homeAway==="away")||cs[1];
+    if(!home||!away)continue;
+    const side=c=>({name:c.team.displayName,our:canonTeam(c.team.displayName),score:c.score,winner:!!c.winner});
+    const obj={id:e.id,state:stt.state,clock:comp.status.displayClock,detail:stt.shortDetail||stt.detail||"",
+      home:side(home),away:side(away)};
+    target.set("t|"+Date.parse(comp.date),obj);
+    if(obj.home.our&&obj.away.our) target.set("p|"+[obj.home.our,obj.away.our].sort().join("~"),obj);
+  }
+}
+function liveFor(m){
+  const ca=canonTeam(m.a),cb=canonTeam(m.b);
+  if(ca&&cb){const k="p|"+[ca,cb].sort().join("~");if(LIVE.has(k))return LIVE.get(k);}
+  const k2="t|"+Date.parse(m.utc);if(LIVE.has(k2))return LIVE.get(k2);
+  return null;
+}
+// External link to ESPN: exact match page when ESPN has the game, else that day's WC scoreboard.
+function espnDate(utc){const dt=new Date(utc);
+  return `${dt.getUTCFullYear()}${String(dt.getUTCMonth()+1).padStart(2,"0")}${String(dt.getUTCDate()).padStart(2,"0")}`;}
+function espnUrl(m,live){
+  if(live&&live.id) return `https://www.espn.com/soccer/match/_/gameId/${live.id}`;
+  return `https://www.espn.com/soccer/scoreboard/_/league/fifa.world/date/${espnDate(m.utc)}`;
+}
+function sideHtml(side,ourName){const t=ourName||side.our;return t?teamHtml(t):side.name;}
+function teamsLine(m,live){
+  if(!live||live.state==="pre"){
+    return m.b?`${teamHtml(m.a)}<span class="vs">vs</span>${teamHtml(m.b)}`
+              :`<span style="color:var(--muted)">${m.a}</span>`;
+  }
+  const ca=canonTeam(m.a),cb=canonTeam(m.b);
+  const byOur={};
+  if(live.home.our)byOur[live.home.our]=live.home;
+  if(live.away.our)byOur[live.away.our]=live.away;
+  let sa,sb,na,nb;
+  if(m.b&&ca&&cb&&byOur[ca]&&byOur[cb]){sa=byOur[ca];sb=byOur[cb];na=m.a;nb=m.b;}
+  else{sa=live.home;sb=live.away;}            // knockouts: use ESPN's real teams/order
+  const fin=live.state==="post";
+  const sc=s=>`<span class="score${fin&&s.winner?" win":""}">${s.score}</span>`;
+  return `${sideHtml(sa,na)}${sc(sa)}<span class="dash">–</span>${sc(sb)}${sideHtml(sb,nb)}`;
+}
+async function fetchLive(){
+  const base="https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=";
+  const now=Date.now();
+  const days=[-1,0,1].map(o=>{const dt=new Date(now+o*864e5);
+    return `${dt.getUTCFullYear()}${String(dt.getUTCMonth()+1).padStart(2,"0")}${String(dt.getUTCDate()).padStart(2,"0")}`;});
+  const fresh=new Map();let ok=false;
+  for(const d of days){
+    try{const r=await fetch(base+d);if(!r.ok)continue;const j=await r.json();ok=true;buildLive(j.events,fresh);}catch(e){}
+  }
+  if(ok){LIVE=fresh;stampLive();render();}
+}
+function stampLive(){
+  const el=document.getElementById("livestatus");if(!el)return;
+  let anyLive=false;LIVE.forEach(v=>{if(v.state==="in")anyLive=true;});
+  const now=timeFmt.format(new Date());
+  el.innerHTML=anyLive
+    ? `<span class="livelbl">● LIVE</span> scores on · updated ${now} MT`
+    : `Live scores connected · updated ${now} MT`;
+}
+
 let activeFilter="all";
 let query="";
 
@@ -300,12 +394,22 @@ function render(){
       curDay=dk;
     }
     const t=timeFmt.format(d).replace(/\s?([AP]M)/,"|$1").split("|");
-    const teams=m.b
-      ? `${teamHtml(m.a)}<span class="vs">vs</span>${teamHtml(m.b)}`
-      : `<span style="color:var(--muted)">${m.a}</span>`;
+    const live=liveFor(m);
+    let timeCell;
+    if(live&&live.state==="in"){
+      timeCell=`<div class="time"><span class="livemin">${live.clock||"LIVE"}</span><span class="ampm livelbl">● LIVE</span></div>`;
+    }else if(live&&live.state==="post"){
+      timeCell=`<div class="time"><span class="ftlbl">FT</span><span class="ampm">Full time</span></div>`;
+    }else{
+      timeCell=`<div class="time">${t[0]}<span class="ampm">${(t[1]||"").trim()} MT</span></div>`;
+    }
+    const teams=teamsLine(m,live);
     const ko=isKO(m.s)?" ko":"";
-    html+=`<div class="match">
-      <div class="time">${t[0]}<span class="ampm">${(t[1]||"").trim()} MT</span></div>
+    const url=espnUrl(m,live);
+    const hint=(live&&live.id)?"Open on ESPN ↗":"ESPN scoreboard ↗";
+    html+=`<div class="match${live&&live.state==="in"?" livematch":""}" data-espn="${url}" title="${hint}">
+      <span class="openhint">${hint}</span>
+      ${timeCell}
       <div><div class="teams">${teams}</div><div class="meta">📍 ${m.v} · Match ${m.n}</div></div>
       <div class="badge"><span class="stage${ko}">${m.s}</span></div>
     </div>`;
@@ -323,6 +427,14 @@ function countdown(){
   const d=Math.floor(diff/864e5),h=Math.floor(diff%864e5/36e5),mi=Math.floor(diff%36e5/6e4);
   el.textContent=`Kickoff in ${d}d ${h}h ${mi}m — Mexico vs South Africa`;
 }
+
+// Click a match card → open ESPN. Clicks on a team link keep their own (FIFA) destination.
+document.getElementById("list").addEventListener("click",e=>{
+  if(e.target.closest("a")) return;
+  const card=e.target.closest(".match");
+  if(!card||!card.dataset.espn) return;
+  window.open(card.dataset.espn,"_blank","noopener");
+});
 
 document.getElementById("search").addEventListener("input",e=>{query=e.target.value.trim();render();});
 document.getElementById("clear").addEventListener("click",()=>{
@@ -342,6 +454,7 @@ document.querySelectorAll(".chip").forEach(c=>{
 
 countdown();setInterval(countdown,60000);
 render();
+fetchLive();setInterval(fetchLive,30000);
 </script>
 </body>
 </html>
