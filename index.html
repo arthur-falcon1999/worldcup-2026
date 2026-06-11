@@ -33,6 +33,28 @@
   .chip{padding:7px 13px;border-radius:20px;border:1px solid var(--line);background:var(--panel);
     color:var(--muted);cursor:pointer;font-size:13px;white-space:nowrap;user-select:none}
   .chip.active{background:var(--accent);color:#08210f;border-color:var(--accent);font-weight:600}
+  .viewtabs{display:flex;gap:8px;margin-bottom:12px}
+  .vtab{padding:9px 16px;border-radius:12px;border:1px solid var(--line);background:var(--panel);
+    color:var(--muted);cursor:pointer;font-size:14px;font-weight:600;user-select:none}
+  .vtab.active{background:var(--accent);color:#08210f;border-color:var(--accent)}
+  .standnote{color:var(--muted);font-size:13px;max-width:920px;margin:6px auto 0;padding:0 16px;line-height:1.5}
+  .grouptbl{margin-top:16px;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .grouptbl h3{margin:0;padding:11px 14px;font-size:14px;color:var(--accent2);
+    border-bottom:1px solid var(--line);background:var(--panel2)}
+  .standwrap{overflow-x:auto}
+  table.stand{width:100%;border-collapse:collapse;font-size:14px;min-width:420px}
+  .stand th,.stand td{padding:9px 7px;text-align:center;white-space:nowrap}
+  .stand th{color:var(--muted);font-weight:600;font-size:11px;letter-spacing:.3px;
+    border-bottom:1px solid var(--line)}
+  .stand td.tm,.stand th.tm{text-align:left;width:100%}
+  .stand tbody tr{border-bottom:1px solid rgba(42,52,87,.5)}
+  .stand tbody tr:last-child{border-bottom:none}
+  .stand tbody tr.qual{background:rgba(55,214,122,.07)}
+  .stand .pos{color:var(--muted);font-weight:700}
+  .stand tr.qual .pos{color:var(--accent)}
+  .stand .pts{font-weight:800;color:var(--text)}
+  .stand td.tm a.team{color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted)}
+  .stand td.tm a.team:hover{color:var(--accent);border-bottom-color:var(--accent)}
   .count{color:var(--muted);font-size:13px;margin:14px auto 0;max-width:920px;padding:0 16px}
   main{max-width:920px;margin:0 auto;padding:8px 16px 60px}
   .daygroup{margin-top:22px}
@@ -89,6 +111,11 @@
 
 <div class="controls">
   <div class="wrap">
+    <div class="viewtabs">
+      <span class="vtab active" data-v="schedule">📅 Schedule</span>
+      <span class="vtab" data-v="standings">📊 Group standings</span>
+    </div>
+    <div id="schedctrls">
     <div class="searchrow">
       <input id="search" type="text" placeholder="Search by team… (e.g. Mexico, Brazil, USA)" autocomplete="off">
       <button class="clearbtn" id="clear">Clear</button>
@@ -115,11 +142,17 @@
       <span class="chip" data-f="Semi">Semi-finals</span>
       <span class="chip" data-f="Final">Final</span>
     </div>
+    </div>
   </div>
 </div>
 
+<div class="standnote" id="standnote" style="display:none">
+  Top 2 of each group advance to the Round of 32, plus the 8 best third-placed teams.
+  Live table via ESPN — updates as results come in.
+</div>
 <div class="count" id="count"></div>
 <main id="list"></main>
+<main id="standings" style="display:none"></main>
 <div class="foot">
   Schedule per official FIFA fixtures. Kickoff times stored in UTC and converted to America/Denver in your browser.<br>
   Tap any team name to open its official FIFA.com page. Number in parentheses is the team's FIFA/Coca-Cola World Ranking (1 April 2026 update).<br>
@@ -418,6 +451,71 @@ function render(){
   list.innerHTML=html;
 }
 
+// ---- Group standings (ESPN, same public API as live scores) ----
+let STANDINGS=[];
+let standErr="";
+// Flag + FIFA-linked name, without the world-ranking parenthetical used on the schedule.
+function standTeam(t){
+  if(FLAGS[t]) return `${flag(t)}<a class="team" href="${FIFA_BASE}${slug(t)}/team-news" target="_blank" rel="noopener">${t}</a>`;
+  return `${flag(t)}${t}`;
+}
+function statN(e,name){const s=(e.stats||[]).find(x=>x.name===name);return s?Math.round(s.value):0;}
+async function fetchStandings(){
+  try{
+    const r=await fetch("https://site.api.espn.com/apis/v2/sports/soccer/fifa.world/standings");
+    if(!r.ok)throw 0;
+    const j=await r.json();
+    const kids=(j.children||[]).filter(c=>c.standings&&c.standings.entries&&c.standings.entries.length);
+    if(kids.length){STANDINGS=kids;standErr="";}
+  }catch(e){ if(!STANDINGS.length) standErr="Couldn't load standings right now — try again shortly."; }
+  if(view==="standings") renderStandings();
+}
+function renderStandings(){
+  const host=document.getElementById("standings");
+  if(!STANDINGS.length){
+    host.innerHTML=`<div class="empty">${standErr||"Loading group standings…"}</div>`;return;
+  }
+  let html="";
+  for(const g of STANDINGS){
+    const rows=(g.standings.entries||[]).slice().sort((a,b)=>statN(a,"rank")-statN(b,"rank"));
+    html+=`<div class="grouptbl"><h3>${g.name}</h3><div class="standwrap">
+      <table class="stand"><thead><tr>
+        <th>#</th><th class="tm">Team</th><th>P</th><th>W</th><th>D</th><th>L</th>
+        <th>GF</th><th>GA</th><th>GD</th><th>Pts</th></tr></thead><tbody>`;
+    rows.forEach((e,i)=>{
+      const our=canonTeam(e.team.displayName);
+      const name=our?standTeam(our):`${e.team.displayName}`;
+      const gf=statN(e,"pointsFor"),ga=statN(e,"pointsAgainst"),gd=gf-ga;
+      const gds=(gd>0?"+":"")+gd;
+      const pos=i+1, qual=pos<=2?" qual":"";
+      html+=`<tr class="${qual.trim()}">
+        <td class="pos">${pos}</td><td class="tm">${name}</td>
+        <td>${statN(e,"gamesPlayed")}</td><td>${statN(e,"wins")}</td>
+        <td>${statN(e,"ties")}</td><td>${statN(e,"losses")}</td>
+        <td>${gf}</td><td>${ga}</td><td>${gds}</td>
+        <td class="pts">${statN(e,"points")}</td></tr>`;
+    });
+    html+=`</tbody></table></div></div>`;
+  }
+  host.innerHTML=html;
+}
+
+// ---- View switching: Schedule <-> Standings ----
+let view="schedule";
+function setView(v){
+  view=v;
+  document.querySelectorAll(".vtab").forEach(t=>t.classList.toggle("active",t.dataset.v===v));
+  const sched=v==="schedule";
+  document.getElementById("schedctrls").style.display=sched?"":"none";
+  document.getElementById("count").style.display=sched?"":"none";
+  document.getElementById("list").style.display=sched?"":"none";
+  document.getElementById("standnote").style.display=sched?"none":"";
+  document.getElementById("standings").style.display=sched?"none":"";
+  if(sched){render();}
+  else{renderStandings();fetchStandings();}
+}
+document.querySelectorAll(".vtab").forEach(t=>t.addEventListener("click",()=>setView(t.dataset.v)));
+
 // countdown to opening match
 function countdown(){
   const start=new Date("2026-06-11T19:00:00Z").getTime();
@@ -455,6 +553,7 @@ document.querySelectorAll(".chip").forEach(c=>{
 countdown();setInterval(countdown,60000);
 render();
 fetchLive();setInterval(fetchLive,30000);
+fetchStandings();setInterval(()=>{if(view==="standings")fetchStandings();},60000);
 </script>
 </body>
 </html>
