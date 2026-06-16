@@ -93,6 +93,16 @@
   .ftlbl{color:var(--accent);font-weight:800}
   .livestatus{margin-top:8px;font-size:12px;color:var(--muted)}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .updbar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:50;
+    display:none;align-items:center;gap:10px;max-width:calc(100% - 28px);
+    background:var(--panel2);border:1px solid var(--accent);border-radius:14px;
+    padding:11px 14px;box-shadow:0 8px 30px rgba(0,0,0,.45);font-size:14px}
+  .updbar.show{display:flex}
+  .updbar .txt{color:var(--text);white-space:nowrap}
+  .updbar button{border:none;cursor:pointer;font-size:14px;font-weight:700;border-radius:10px}
+  .updbar .refresh{background:var(--accent);color:#08210f;padding:8px 14px}
+  .updbar .dismiss{background:transparent;color:var(--muted);padding:8px 6px;font-weight:600}
+  .updbar .dismiss:hover{color:var(--text)}
   @media(max-width:560px){
     .match{grid-template-columns:64px 1fr;}
     .badge{grid-column:1/3;justify-self:start;margin-top:2px}
@@ -157,6 +167,12 @@
   Schedule per official FIFA fixtures. Kickoff times stored in UTC and converted to America/Denver in your browser.<br>
   Tap any team name to open its official FIFA.com page. Number in parentheses is the team's FIFA/Coca-Cola World Ranking (1 April 2026 update).<br>
   Knockout matchups (Round of 32 onward) show placeholders until group results are decided.
+</div>
+
+<div class="updbar" id="updbar">
+  <span class="txt">🆕 New version available</span>
+  <button class="refresh" id="updRefresh">Refresh</button>
+  <button class="dismiss" id="updDismiss" title="Dismiss">✕</button>
 </div>
 
 <script>
@@ -327,6 +343,9 @@ Object.keys(FLAGS).forEach(t=>{NORM_TEAM[normTeam(t)]=t;});
 function canonTeam(name){if(!name)return null;const n=normTeam(name);return TEAM_ALIASES[n]||NORM_TEAM[n]||null;}
 
 let LIVE=new Map();
+// Finalized results from days before the live window. Scores there never change,
+// so we fetch them once and keep them — without this, only the last ~3 days show scores.
+let PAST=new Map();
 function buildLive(events,target){
   for(const e of (events||[])){
     const comp=e.competitions&&e.competitions[0];if(!comp)continue;
@@ -377,11 +396,25 @@ async function fetchLive(){
   const now=Date.now();
   const days=[-1,0,1].map(o=>{const dt=new Date(now+o*864e5);
     return `${dt.getUTCFullYear()}${String(dt.getUTCMonth()+1).padStart(2,"0")}${String(dt.getUTCDate()).padStart(2,"0")}`;});
-  const fresh=new Map();let ok=false;
+  const fresh=new Map(PAST);let ok=false;   // seed with finalized past results so they survive the swap
   for(const d of days){
     try{const r=await fetch(base+d);if(!r.ok)continue;const j=await r.json();ok=true;buildLive(j.events,fresh);}catch(e){}
   }
   if(ok){LIVE=fresh;stampLive();render();}
+}
+// One-time backfill: fetch scores for every tournament day already finished
+// (older than the live window), so past results show up — not just recent games.
+async function fetchPast(){
+  const base="https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=";
+  const cutoff=Date.now()-864e5;   // anything older than ~yesterday; live poll covers the rest
+  const dates=[...new Set(M.filter(m=>Date.parse(m.utc)<cutoff).map(m=>espnDate(m.utc)))];
+  for(const d of dates){
+    try{const r=await fetch(base+d);if(!r.ok)continue;const j=await r.json();buildLive(j.events,PAST);}catch(e){}
+  }
+  if(PAST.size){
+    for(const [k,v] of PAST){if(!LIVE.has(k))LIVE.set(k,v);}   // fold into current view and repaint
+    render();
+  }
 }
 function stampLive(){
   const el=document.getElementById("livestatus");if(!el)return;
@@ -552,8 +585,26 @@ document.querySelectorAll(".chip").forEach(c=>{
 
 countdown();setInterval(countdown,60000);
 render();
+fetchPast();
 fetchLive();setInterval(fetchLive,30000);
 fetchStandings();setInterval(()=>{if(view==="standings")fetchStandings();},60000);
+
+// ---- auto-update: notice when a newer build is deployed, offer a refresh ----
+let _verTag=null;
+async function checkVersion(){
+  try{
+    const r=await fetch(location.pathname,{method:"HEAD",cache:"no-store"});
+    if(!r.ok)return;
+    const tag=r.headers.get("etag")||r.headers.get("last-modified");
+    if(!tag)return;
+    if(_verTag===null){_verTag=tag;return;}   // first call = baseline for this tab
+    if(tag!==_verTag){_verTag=tag;document.getElementById("updbar").classList.add("show");}
+  }catch(e){}
+}
+document.getElementById("updRefresh").addEventListener("click",()=>location.reload());
+document.getElementById("updDismiss").addEventListener("click",()=>
+  document.getElementById("updbar").classList.remove("show"));
+checkVersion();setInterval(checkVersion,120000);
 </script>
 </body>
 </html>
