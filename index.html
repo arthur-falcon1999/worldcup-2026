@@ -57,6 +57,12 @@
   .stand td.tm a.team:hover{color:var(--accent);border-bottom-color:var(--accent)}
   .count{color:var(--muted);font-size:13px;margin:14px auto 0;max-width:920px;padding:0 16px}
   main{max-width:920px;margin:0 auto;padding:8px 16px 60px}
+  .prevtoggle{display:flex;align-items:center;gap:9px;cursor:pointer;user-select:none;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:12px 15px;margin-top:16px;color:var(--muted);font-size:14px;font-weight:600}
+  .prevtoggle:hover{border-color:#3a4670;color:var(--text)}
+  .prevtoggle .arrow{display:inline-block;transition:transform .15s;font-size:12px}
+  .prevtoggle.open .arrow{transform:rotate(90deg)}
   .daygroup{margin-top:22px}
   .dayhead{position:sticky;top:118px;background:rgba(13,20,48,.96);backdrop-filter:blur(6px);
     padding:8px 12px;border-radius:10px;font-size:14px;font-weight:700;color:var(--accent2);
@@ -441,6 +447,32 @@ function matchPasses(m){
   return m.s===activeFilter;
 }
 
+// One match card.
+function matchCard(m){
+  const d=new Date(m.utc);
+  const t=timeFmt.format(d).replace(/\s?([AP]M)/,"|$1").split("|");
+  const live=liveFor(m);
+  let timeCell;
+  if(live&&live.state==="in"){
+    timeCell=`<div class="time"><span class="livemin">${live.clock||"LIVE"}</span><span class="ampm livelbl">● LIVE</span></div>`;
+  }else if(live&&live.state==="post"){
+    timeCell=`<div class="time"><span class="ftlbl">FT</span><span class="ampm">Full time</span></div>`;
+  }else{
+    timeCell=`<div class="time">${t[0]}<span class="ampm">${(t[1]||"").trim()} MT</span></div>`;
+  }
+  const teams=teamsLine(m,live);
+  const ko=isKO(m.s)?" ko":"";
+  const url=espnUrl(m,live);
+  const hint=(live&&live.id)?"Open on ESPN ↗":"ESPN scoreboard ↗";
+  return `<div class="match${live&&live.state==="in"?" livematch":""}" data-espn="${url}" title="${hint}">
+      <span class="openhint">${hint}</span>
+      ${timeCell}
+      <div><div class="teams">${teams}</div><div class="meta">📍 ${m.v} · Match ${m.n}</div></div>
+      <div class="badge"><span class="stage${ko}">${m.s}</span></div>
+    </div>`;
+}
+
+let showPast=false;   // whether the collapsed "previous games" section is expanded
 function render(){
   const list=document.getElementById("list");
   const filtered=M.filter(matchPasses);
@@ -450,37 +482,29 @@ function render(){
     list.innerHTML=`<div class="empty">No matches found.<br>Try another team name or clear the filters.</div>`;
     return;
   }
-  let html="",curDay="";
+  // Group filtered matches by their Mountain-Time day.
+  const groups=[];let cur=null;
   for(const m of filtered){
-    const d=new Date(m.utc);
-    const dk=dayKeyFmt.format(d);
-    if(dk!==curDay){
-      if(curDay)html+="</div>";
-      html+=`<div class="daygroup"><div class="dayhead">${dayFmt.format(d)}</div>`;
-      curDay=dk;
-    }
-    const t=timeFmt.format(d).replace(/\s?([AP]M)/,"|$1").split("|");
-    const live=liveFor(m);
-    let timeCell;
-    if(live&&live.state==="in"){
-      timeCell=`<div class="time"><span class="livemin">${live.clock||"LIVE"}</span><span class="ampm livelbl">● LIVE</span></div>`;
-    }else if(live&&live.state==="post"){
-      timeCell=`<div class="time"><span class="ftlbl">FT</span><span class="ampm">Full time</span></div>`;
-    }else{
-      timeCell=`<div class="time">${t[0]}<span class="ampm">${(t[1]||"").trim()} MT</span></div>`;
-    }
-    const teams=teamsLine(m,live);
-    const ko=isKO(m.s)?" ko":"";
-    const url=espnUrl(m,live);
-    const hint=(live&&live.id)?"Open on ESPN ↗":"ESPN scoreboard ↗";
-    html+=`<div class="match${live&&live.state==="in"?" livematch":""}" data-espn="${url}" title="${hint}">
-      <span class="openhint">${hint}</span>
-      ${timeCell}
-      <div><div class="teams">${teams}</div><div class="meta">📍 ${m.v} · Match ${m.n}</div></div>
-      <div class="badge"><span class="stage${ko}">${m.s}</span></div>
-    </div>`;
+    const dk=dayKeyFmt.format(new Date(m.utc));
+    if(!cur||cur.dk!==dk){cur={dk,label:dayFmt.format(new Date(m.utc)),count:0,cards:""};groups.push(cur);}
+    cur.cards+=matchCard(m);cur.count++;
   }
-  html+="</div>";
+  const todayKey=dayKeyFmt.format(new Date());
+  const past=groups.filter(g=>g.dk<todayKey);
+  const rest=groups.filter(g=>g.dk>=todayKey);   // today first, then upcoming
+  const groupHtml=g=>`<div class="daygroup"><div class="dayhead">${g.label}</div>${g.cards}</div>`;
+  let html="";
+  // Tuck earlier days behind a toggle so today's games sit at the top — but only
+  // when there are also current/upcoming games to show above them.
+  if(past.length&&rest.length){
+    const n=past.reduce((s,g)=>s+g.count,0);
+    html+=`<div class="prevtoggle${showPast?" open":""}"><span class="arrow">▸</span>`+
+          `<span>${showPast?"Hide":"Show"} previous games (${n})</span></div>`;
+    if(showPast) html+=past.map(groupHtml).join("");
+    html+=rest.map(groupHtml).join("");
+  }else{
+    html+=groups.map(groupHtml).join("");
+  }
   list.innerHTML=html;
 }
 
@@ -562,6 +586,7 @@ function countdown(){
 // Click a match card → open ESPN. Clicks on a team link keep their own (FIFA) destination.
 document.getElementById("list").addEventListener("click",e=>{
   if(e.target.closest("a")) return;
+  if(e.target.closest(".prevtoggle")){showPast=!showPast;render();return;}
   const card=e.target.closest(".match");
   if(!card||!card.dataset.espn) return;
   window.open(card.dataset.espn,"_blank","noopener");
