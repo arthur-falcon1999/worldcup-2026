@@ -552,6 +552,7 @@ async function fetchStandings(){
     if(kids.length){STANDINGS=kids;standErr="";}
   }catch(e){ if(!STANDINGS.length) standErr="Couldn't load standings right now — try again shortly."; }
   if(view==="standings") renderStandings();
+  if(view==="usa") renderUSA();
 }
 function renderStandings(){
   const host=document.getElementById("standings");
@@ -657,39 +658,118 @@ function usaResultLabel(m,res){
   const usaWon=(m.a===USA_TEAM&&res==="a")||(m.b===USA_TEAM&&res==="b");
   return usaWon?`beat ${opp}`:`lose to ${opp}`;
 }
+// Plain-English result of one (non-USA) fixture: "Türkiye beat Paraguay", "X and Y draw".
+function gameResultPhrase(m,res){
+  if(res==="d")return `${m.a} and ${m.b} draw`;
+  return res==="a"?`${m.a} beat ${m.b}`:`${m.b} beat ${m.a}`;
+}
+// A set of acceptable results for one fixture, phrased compactly (uses negation when tidier).
+function gameClause(m,ok){
+  if(ok.length>=3)return "any result";
+  if(ok.length===1)return gameResultPhrase(m,ok[0]);
+  const missing=["a","d","b"].find(r=>!ok.includes(r));
+  if(missing==="a")return `${m.a} fail to beat ${m.b}`;
+  if(missing==="b")return `${m.b} fail to beat ${m.a}`;
+  return `${m.a} v ${m.b} doesn't end in a draw`;
+}
 const ORD=["","1st","2nd","3rd","4th"];
 function renderUSA(){
   const host=document.getElementById("usa");
   const g=groupTable();
+  const grpLetter=g.grp.split(" ")[1]||"D";
   const usaRem=g.remaining.filter(m=>m.a===USA_TEAM||m.b===USA_TEAM);
   const otherRem=g.remaining.filter(m=>!(m.a===USA_TEAM||m.b===USA_TEAM));
   const usaCombos=product(usaRem),otherCombos=product(otherRem);
 
-  // Aggregate USA's outcome across every "other games" result for one USA path.
-  function aggregate(uc){
-    let wr=1,br=4,third=false,gd=false;
-    otherCombos.forEach(oc=>{
-      const b=rankBand(pointsAfter(g.teams,uc.concat(oc)));
-      wr=Math.max(wr,b.worst);br=Math.min(br,b.best);
-      if(b.best<=3&&b.worst>=3)third=true;
-      if(b.best<=2&&b.worst>2)gd=true;
-    });
-    return {wr,br,third,gdMatters:gd};
+  // Classify USA's finish for one full scenario (USA path + one set of other results):
+  // safe = top-2 no matter the goal difference; gd = top-2 only if GD favours USA;
+  // third = best is 3rd; out = 4th.
+  function classify(uc,oc){
+    const b=rankBand(pointsAfter(g.teams,uc.concat(oc)));
+    if(b.worst<=2)return "safe";
+    if(b.best<=2)return "gd";
+    if(b.best===3)return "third";
+    return "out";
   }
-  function verdict(a){
-    if(a.wr<=2)return {cls:"v-in",badge:"✓ Through",
-      txt:"Qualifies for the Round of 32 — a top-2 finish is guaranteed in this scenario."};
-    if(a.br<=2){
-      let t="Can still finish in the top 2, but it depends on the other Group D "
-        +(otherRem.length>1?"results":"result")+".";
-      if(a.gdMatters)t+=" Some paths come down to goal difference.";
-      if(a.third)t+=" If USA misses the top 2, 3rd place is still possible (the 8 best 3rd-place teams across all groups also advance).";
-      return {cls:"v-maybe",badge:"Top-2 possible",txt:t};
+  // Does a predicate over "other results" depend only on fixture i? If so return res->bool.
+  function dependsOnlyOn(pred,i){
+    const byRes={};
+    for(const oc of otherCombos){
+      const r=oc[i].res,v=pred(oc);
+      if(byRes[r]===undefined)byRes[r]=v; else if(byRes[r]!==v)return null;
     }
-    if(a.br===3)return {cls:"v-third",badge:"3rd-place route",
-      txt:"Can finish no higher than 3rd — USA would need to be among the 8 best 3rd-place teams across all 12 groups to advance."};
-    return {cls:"v-out",badge:"Eliminated",
-      txt:"Cannot reach the Round of 32 in this scenario."};
+    return byRes;
+  }
+  // Readable clauses describing the set of "other results" that satisfy pred.
+  // Returns [] = always true, null = never true, else an array of OR-ed clauses.
+  function clausesFor(pred){
+    if(!otherRem.length)return pred([])?[]:null;
+    for(let i=0;i<otherRem.length;i++){          // does one fixture alone decide it?
+      const dep=dependsOnlyOn(pred,i);
+      if(dep){
+        const ok=["a","d","b"].filter(r=>dep[r]);
+        if(!ok.length)return null;
+        if(ok.length===3)return [];
+        return [gameClause(otherRem[i],ok)];
+      }
+    }
+    if(otherRem.length===2){                     // two fixtures: collapse by the first
+      const g1=otherRem[0],g2=otherRem[1],out=[];
+      for(const r1 of ["a","d","b"]){
+        const ok2=["a","d","b"].filter(r2=>pred([{m:g1,res:r1},{m:g2,res:r2}]));
+        if(!ok2.length)continue;
+        out.push(ok2.length===3?gameResultPhrase(g1,r1)
+          :`${gameResultPhrase(g1,r1)} and ${gameClause(g2,ok2)}`);
+      }
+      return out.length?out:null;
+    }
+    const q=otherCombos.filter(pred);            // fallback: enumerate
+    if(!q.length)return null;
+    return q.map(oc=>oc.map(({m,res})=>gameResultPhrase(m,res)).join(" and "));
+  }
+  // Pick the shorter of "if <qualifying>" vs "unless <failing>". {neg, text} or null.
+  function describe(pred){
+    const yes=clausesFor(pred);
+    if(yes===null)return null;
+    if(!yes.length)return {neg:false,text:"no matter the other Group D results"};
+    const no=clausesFor(oc=>!pred(oc));
+    if(no&&no.length&&no.length<yes.length)return {neg:true,text:no.join("; or ")};
+    return {neg:false,text:yes.join("; or ")};
+  }
+  function throughLine(pred,verb,allowNeg){    // verb e.g. "Through", "Reach the top 2"
+    const d=describe(pred);if(!d)return verb+".";
+    if(d.text.startsWith("no matter"))return `${verb} ${d.text}.`;
+    if(d.neg&&allowNeg!==false)return `${verb} unless ${d.text}.`;
+    if(d.neg){const yes=clausesFor(pred);return `${verb} if ${(yes||[]).join("; or ")}.`;}
+    return `${verb} if ${d.text}.`;
+  }
+  function verdict(uc){
+    const cls=otherCombos.map(oc=>classify(uc,oc));
+    const has=v=>cls.includes(v);
+    if(cls.every(v=>v==="safe"))
+      return {cls:"v-in",badge:"✓ Through",
+        txt:"Qualifies for the Round of 32 — a top-2 finish is guaranteed in this scenario."};
+    if(has("safe")){
+      let t="✅ "+throughLine(oc=>classify(uc,oc)==="safe","Through");
+      if(has("gd"))t+=" On the other results it comes down to goal difference.";
+      if(has("third"))t+=" If USA slip out of the top 2, a 3rd-place finish could still advance (8 best 3rd-placed teams).";
+      return {cls:"v-maybe",badge:"Through if…",txt:t};
+    }
+    if(has("gd")){
+      let t=throughLine(oc=>{const c=classify(uc,oc);return c==="safe"||c==="gd";},"Reach the top 2 only on goal difference, and only",false);
+      if(has("third"))t+=" Otherwise the only route is a 3rd-place finish (8 best 3rd-placed teams).";
+      return {cls:"v-maybe",badge:"Top-2 on GD",txt:t};
+    }
+    if(has("third"))
+      return {cls:"v-third",badge:"3rd-place route",
+        txt:"Can finish no higher than 3rd — USA would need to be among the 8 best 3rd-placed teams across all 12 groups to advance."};
+    return {cls:"v-out",badge:"Eliminated",txt:"Cannot reach the Round of 32 in this scenario."};
+  }
+  function bandRange(uc){   // best/worst rank for headline
+    let br=4,wr=1;
+    otherCombos.forEach(oc=>{const b=rankBand(pointsAfter(g.teams,uc.concat(oc)));
+      br=Math.min(br,b.best);wr=Math.max(wr,b.worst);});
+    return {br,wr};
   }
   function ucPoints(uc){
     let p=g.teams[USA_TEAM].Pts;
@@ -697,14 +777,26 @@ function renderUSA(){
       if(res==="d")p++;else if(win)p+=3;});
     return p;
   }
+  // Current live position of a team in another group (1=leader, 2=runner-up, 3=third).
+  function groupRows(letter){
+    if(!STANDINGS.length)return null;
+    const grp=STANDINGS.find(s=>(s.name||"")==="Group "+letter);
+    if(!grp||!grp.standings)return null;
+    return (grp.standings.entries||[]).slice().sort((a,b)=>statN(a,"rank")-statN(b,"rank"));
+  }
+  function teamAt(letter,pos){
+    const r=groupRows(letter);if(!r||!r[pos-1])return null;
+    const nm=r[pos-1].team.displayName,our=canonTeam(nm);
+    return our?standTeam(our):nm;
+  }
 
   const usaRow=g.rows.find(r=>r.team===USA_TEAM);
   const usaPos=g.rows.indexOf(usaRow)+1;
-  let h=`<div class="usanote">Group D — the top 2 advance to the Round of 32. The 8 best 3rd-place teams across all 12 groups also go through. Table and results update live from ESPN.</div>`;
+  let h=`<div class="usanote">Group ${grpLetter} — the top 2 advance to the Round of 32. The 8 best 3rd-place teams across all 12 groups also go through. Table and results update live from ESPN.</div>`;
 
   // Headline: where USA can still finish, best to worst.
   let gbr=4,gwr=1;
-  usaCombos.forEach(uc=>{const a=aggregate(uc);gbr=Math.min(gbr,a.br);gwr=Math.max(gwr,a.wr);});
+  usaCombos.forEach(uc=>{const r=bandRange(uc);gbr=Math.min(gbr,r.br);gwr=Math.max(gwr,r.wr);});
   if(usaRow){
     h+=`<div class="headcard">`;
     if(!g.remaining.length){
@@ -746,24 +838,54 @@ function renderUSA(){
   h+=`<div class="sechead">USA's paths</div>`;
   if(!usaRem.length){
     if(g.remaining.length){
-      h+=`<div class="usanote">USA have finished their group games. Their final position now depends only on the remaining Group D results above.</div>`;
-      const a=aggregate([]),v=verdict(a);
-      h+=`<div class="scen"><div class="path"><span>However the rest of Group D plays out</span>`
+      h+=`<div class="usanote">USA have finished their group games. Their final position now depends only on the remaining Group ${grpLetter} results above.</div>`;
+      const v=verdict([]);
+      h+=`<div class="scen"><div class="path"><span>However the rest of Group ${grpLetter} plays out</span>`
         +`<span class="badge2 ${v.cls}">${v.badge}</span></div><div class="detail">${v.txt}</div></div>`;
     }else{
-      h+=`<div class="usanote">All Group D games are complete — see the verdict above.</div>`;
+      h+=`<div class="usanote">All Group ${grpLetter} games are complete — see the verdict above.</div>`;
     }
   }else{
-    const sorted=usaCombos.map(uc=>({uc,pts:ucPoints(uc),a:aggregate(uc)}))
+    const sorted=usaCombos.map(uc=>({uc,pts:ucPoints(uc)}))
       .sort((x,y)=>y.pts-x.pts);
-    sorted.forEach(({uc,pts,a})=>{
-      const v=verdict(a);
+    sorted.forEach(({uc,pts})=>{
+      const v=verdict(uc);
       const label=uc.map(({m,res})=>usaResultLabel(m,res))
         .map(s=>s.charAt(0).toUpperCase()+s.slice(1)).join(", then ");
       h+=`<div class="scen"><div class="path"><span>${label} <span class="pathpts">→ ${pts} pts</span></span>`
         +`<span class="badge2 ${v.cls}">${v.badge}</span></div><div class="detail">${v.txt}</div></div>`;
     });
-    h+=`<div class="usanote" style="margin-top:12px">Each verdict accounts for every possible result in the other Group D games. “Goal difference” notes appear where two teams could finish level on points. 3rd-place qualification also depends on results in the other 11 groups.</div>`;
+    h+=`<div class="usanote" style="margin-top:12px">Each verdict accounts for every possible result in the other Group ${grpLetter} games. “Goal difference” notes appear where two teams could finish level on points. 3rd-place qualification also depends on results in the other 11 groups.</div>`;
+  }
+
+  // Round-of-32 opponents if USA finish 1st or 2nd (bracket positions are fixed in advance).
+  const winTok="Winner "+grpLetter,runTok="Runner-up "+grpLetter;
+  const r32=tok=>M.find(m=>m.s==="Round of 32"&&(m.a===tok||m.b===tok));
+  const winM=r32(winTok),runM=r32(runTok);
+  function oppDesc(tok){
+    let m=/^Runner-up ([A-Z])$/.exec(tok);
+    if(m){const cur=teamAt(m[1],2);return `the runner-up of Group ${m[1]}${cur?` <span class="rmeta">(currently ${cur})</span>`:""}`;}
+    m=/^Winner ([A-Z])$/.exec(tok);
+    if(m){const cur=teamAt(m[1],1);return `the winner of Group ${m[1]}${cur?` <span class="rmeta">(currently ${cur})</span>`:""}`;}
+    m=/^3rd ([A-Z/]+)$/.exec(tok);
+    if(m){const letters=m[1].split("/");
+      const cur=letters.map(L=>{const t=teamAt(L,3);return t?`${L}: ${t}`:null;}).filter(Boolean);
+      return `one of the 3rd-place qualifiers from Groups ${letters.join("/")}`
+        +(cur.length?` <span class="rmeta">(current 3rd: ${cur.join(", ")})</span>`:"");}
+    return tok;
+  }
+  function r32Card(title,m,tok,badgeCls){
+    if(!m)return "";
+    const opp=m.a===tok?m.b:m.a,d=new Date(m.utc);
+    return `<div class="scen"><div class="path"><span>${title}</span>`
+      +`<span class="badge2 ${badgeCls}">R32 · Match ${m.n}</span></div>`
+      +`<div class="detail">Would face ${oppDesc(opp)}.<br>📍 ${m.v} · ${dayFmt.format(d)}, ${timeFmt.format(d)} MT</div></div>`;
+  }
+  if(winM||runM){
+    h+=`<div class="sechead">Who USA would play in the Round of 32</div>`;
+    h+=r32Card("If USA win the group (1st)",winM,winTok,"v-in");
+    h+=r32Card("If USA finish 2nd",runM,runTok,"v-maybe");
+    h+=`<div class="usanote" style="margin-top:6px">Round-of-32 matchups are set by bracket position, so the side of the draw is known now — only the opponent's identity firms up as the other groups finish. “Currently” shows who holds that spot today.</div>`;
   }
 
   host.innerHTML=h;
@@ -783,7 +905,7 @@ function setView(v){
   document.getElementById("usa").style.display=usa?"":"none";
   if(sched){render();}
   else if(stand){renderStandings();fetchStandings();}
-  else{renderUSA();}
+  else{renderUSA();fetchStandings();}
 }
 document.querySelectorAll(".vtab").forEach(t=>t.addEventListener("click",()=>setView(t.dataset.v)));
 
@@ -826,7 +948,7 @@ countdown();setInterval(countdown,60000);
 render();
 fetchPast();
 fetchLive();setInterval(fetchLive,30000);
-fetchStandings();setInterval(()=>{if(view==="standings")fetchStandings();},60000);
+fetchStandings();setInterval(()=>{if(view==="standings"||view==="usa")fetchStandings();},60000);
 
 // ---- auto-update: notice when a newer build is deployed, offer a refresh ----
 let _verTag=null;
