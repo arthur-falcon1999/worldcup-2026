@@ -33,7 +33,7 @@
   .chip{padding:7px 13px;border-radius:20px;border:1px solid var(--line);background:var(--panel);
     color:var(--muted);cursor:pointer;font-size:13px;white-space:nowrap;user-select:none}
   .chip.active{background:var(--accent);color:#08210f;border-color:var(--accent);font-weight:600}
-  .viewtabs{display:flex;gap:8px;margin-bottom:12px}
+  .viewtabs{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
   .vtab{padding:9px 16px;border-radius:12px;border:1px solid var(--line);background:var(--panel);
     color:var(--muted);cursor:pointer;font-size:14px;font-weight:600;user-select:none}
   .vtab.active{background:var(--accent);color:#08210f;border-color:var(--accent)}
@@ -56,6 +56,30 @@
   .stand td.tm a.team{color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted)}
   .stand td.tm a.team:hover{color:var(--accent);border-bottom-color:var(--accent)}
   .count{color:var(--muted);font-size:13px;margin:14px auto 0;max-width:920px;padding:0 16px}
+  .stand tbody tr.meRow{background:rgba(255,210,74,.12)}
+  .stand tr.meRow .pos{color:var(--accent2)}
+  .stand tr.qual.meRow{background:rgba(255,210,74,.16)}
+  .usanote{color:var(--muted);font-size:13px;line-height:1.55;margin:2px 0 4px}
+  .headcard{background:var(--panel2);border:1px solid var(--line);border-radius:14px;
+    padding:14px 16px;margin-top:14px;font-size:15px;line-height:1.55}
+  .headcard b{color:var(--accent2)}
+  .sechead{font-size:15px;font-weight:700;color:var(--accent2);margin:24px 0 10px}
+  .remlist{list-style:none;padding:0;margin:0}
+  .remlist li{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:10px 13px;margin-bottom:7px;font-size:15px}
+  .remlist li.done{opacity:.65}
+  .rmeta{color:var(--muted);font-size:12px}
+  .scen{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:13px 15px;margin-bottom:10px}
+  .scen .path{font-size:15px;font-weight:600;display:flex;justify-content:space-between;
+    gap:10px;align-items:center;flex-wrap:wrap}
+  .scen .pathpts{color:var(--muted);font-weight:500;font-size:12px}
+  .scen .detail{color:var(--muted);font-size:13px;margin-top:7px;line-height:1.55}
+  .badge2{padding:4px 11px;border-radius:20px;font-size:12px;font-weight:700;white-space:nowrap}
+  .v-in{background:rgba(55,214,122,.16);color:var(--accent);border:1px solid rgba(55,214,122,.5)}
+  .v-maybe{background:rgba(80,150,255,.14);color:#7fb0ff;border:1px solid rgba(80,150,255,.5)}
+  .v-third{background:rgba(255,210,74,.14);color:var(--accent2);border:1px solid rgba(255,210,74,.5)}
+  .v-out{background:rgba(255,90,95,.14);color:var(--live);border:1px solid rgba(255,90,95,.5)}
   main{max-width:920px;margin:0 auto;padding:8px 16px 60px}
   .prevtoggle{display:flex;align-items:center;gap:9px;cursor:pointer;user-select:none;
     background:var(--panel);border:1px solid var(--line);border-radius:12px;
@@ -130,6 +154,7 @@
     <div class="viewtabs">
       <span class="vtab active" data-v="schedule">📅 Schedule</span>
       <span class="vtab" data-v="standings">📊 Group standings</span>
+      <span class="vtab" data-v="usa">🇺🇸 USA scenarios</span>
     </div>
     <div id="schedctrls">
     <div class="searchrow">
@@ -169,6 +194,7 @@
 <div class="count" id="count"></div>
 <main id="list"></main>
 <main id="standings" style="display:none"></main>
+<main id="usa" style="display:none"></main>
 <div class="foot">
   Schedule per official FIFA fixtures. Kickoff times stored in UTC and converted to America/Denver in your browser.<br>
   Tap any team name to open its official FIFA.com page. Number in parentheses is the team's FIFA/Coca-Cola World Ranking (1 April 2026 update).<br>
@@ -406,7 +432,7 @@ async function fetchLive(){
   for(const d of days){
     try{const r=await fetch(base+d);if(!r.ok)continue;const j=await r.json();ok=true;buildLive(j.events,fresh);}catch(e){}
   }
-  if(ok){LIVE=fresh;stampLive();render();}
+  if(ok){LIVE=fresh;stampLive();render();if(view==="usa")renderUSA();}
 }
 // One-time backfill: fetch scores for every tournament day already finished
 // (older than the live window), so past results show up — not just recent games.
@@ -419,7 +445,7 @@ async function fetchPast(){
   }
   if(PAST.size){
     for(const [k,v] of PAST){if(!LIVE.has(k))LIVE.set(k,v);}   // fold into current view and repaint
-    render();
+    render();if(view==="usa")renderUSA();
   }
 }
 function stampLive(){
@@ -557,19 +583,207 @@ function renderStandings(){
   host.innerHTML=html;
 }
 
-// ---- View switching: Schedule <-> Standings ----
+// ---- USA "road to the knockouts" scenarios ----
+// Builds the USA's group table live from finished results, then enumerates every
+// combination of remaining group results to spell out what each USA path means.
+const USA_TEAM="USA";
+function usaGroupName(){
+  const m=M.find(x=>x.s.startsWith("Group")&&(x.a===USA_TEAM||x.b===USA_TEAM));
+  return m?m.s:"Group D";
+}
+// Finished result for a fixture, mapped to our team order (goals for m.a / m.b).
+function getResult(m){
+  const live=liveFor(m);
+  if(live&&live.state==="post"){
+    const ca=canonTeam(m.a),cb=canonTeam(m.b);
+    const byOur={};
+    if(live.home.our)byOur[live.home.our]=live.home;
+    if(live.away.our)byOur[live.away.our]=live.away;
+    if(byOur[ca]&&byOur[cb]&&byOur[ca].score!=null&&byOur[cb].score!=null)
+      return {played:true,ga:+byOur[ca].score,gb:+byOur[cb].score};
+  }
+  return {played:false};
+}
+function groupTable(){
+  const grp=usaGroupName();
+  const games=M.filter(m=>m.s===grp);
+  const teams={};
+  const row=t=>teams[t]||(teams[t]={team:t,P:0,W:0,D:0,L:0,GF:0,GA:0,GD:0,Pts:0});
+  games.forEach(m=>{row(m.a);row(m.b);});
+  const remaining=[];
+  games.forEach(m=>{
+    const r=getResult(m);
+    if(!r.played){remaining.push(m);return;}
+    const A=row(m.a),B=row(m.b);
+    A.P++;B.P++;A.GF+=r.ga;A.GA+=r.gb;B.GF+=r.gb;B.GA+=r.ga;
+    if(r.ga>r.gb){A.W++;B.L++;A.Pts+=3;}
+    else if(r.ga<r.gb){B.W++;A.L++;B.Pts+=3;}
+    else{A.D++;B.D++;A.Pts++;B.Pts++;}
+  });
+  Object.values(teams).forEach(t=>t.GD=t.GF-t.GA);
+  const rows=Object.values(teams).sort((a,b)=>
+    b.Pts-a.Pts||b.GD-a.GD||b.GF-a.GF||a.team.localeCompare(b.team));
+  return {grp,games,teams,rows,remaining};
+}
+// Cartesian product of W/D/L ('a'=home win, 'd'=draw, 'b'=away win) over fixtures.
+function product(matches){
+  let acc=[[]];
+  matches.forEach(m=>{
+    const next=[];
+    ["a","d","b"].forEach(res=>acc.forEach(a=>next.push(a.concat([{m,res}]))));
+    acc=next;
+  });
+  return acc;
+}
+function pointsAfter(base,assignment){
+  const pts={};Object.keys(base).forEach(t=>pts[t]=base[t].Pts);
+  assignment.forEach(({m,res})=>{
+    if(res==="a")pts[m.a]+=3;
+    else if(res==="b")pts[m.b]+=3;
+    else{pts[m.a]++;pts[m.b]++;}
+  });
+  return pts;
+}
+// USA's best- and worst-possible finishing rank on points alone (ties left unresolved).
+function rankBand(pts){
+  const u=pts[USA_TEAM];let above=0,tied=0;
+  for(const t in pts){if(t===USA_TEAM)continue;
+    if(pts[t]>u)above++;else if(pts[t]===u)tied++;}
+  return {best:above+1,worst:above+tied+1};
+}
+function usaResultLabel(m,res){
+  const opp=m.a===USA_TEAM?m.b:m.a;
+  if(res==="d")return `draw with ${opp}`;
+  const usaWon=(m.a===USA_TEAM&&res==="a")||(m.b===USA_TEAM&&res==="b");
+  return usaWon?`beat ${opp}`:`lose to ${opp}`;
+}
+const ORD=["","1st","2nd","3rd","4th"];
+function renderUSA(){
+  const host=document.getElementById("usa");
+  const g=groupTable();
+  const usaRem=g.remaining.filter(m=>m.a===USA_TEAM||m.b===USA_TEAM);
+  const otherRem=g.remaining.filter(m=>!(m.a===USA_TEAM||m.b===USA_TEAM));
+  const usaCombos=product(usaRem),otherCombos=product(otherRem);
+
+  // Aggregate USA's outcome across every "other games" result for one USA path.
+  function aggregate(uc){
+    let wr=1,br=4,third=false,gd=false;
+    otherCombos.forEach(oc=>{
+      const b=rankBand(pointsAfter(g.teams,uc.concat(oc)));
+      wr=Math.max(wr,b.worst);br=Math.min(br,b.best);
+      if(b.best<=3&&b.worst>=3)third=true;
+      if(b.best<=2&&b.worst>2)gd=true;
+    });
+    return {wr,br,third,gdMatters:gd};
+  }
+  function verdict(a){
+    if(a.wr<=2)return {cls:"v-in",badge:"✓ Through",
+      txt:"Qualifies for the Round of 32 — a top-2 finish is guaranteed in this scenario."};
+    if(a.br<=2){
+      let t="Can still finish in the top 2, but it depends on the other Group D "
+        +(otherRem.length>1?"results":"result")+".";
+      if(a.gdMatters)t+=" Some paths come down to goal difference.";
+      if(a.third)t+=" If USA misses the top 2, 3rd place is still possible (the 8 best 3rd-place teams across all groups also advance).";
+      return {cls:"v-maybe",badge:"Top-2 possible",txt:t};
+    }
+    if(a.br===3)return {cls:"v-third",badge:"3rd-place route",
+      txt:"Can finish no higher than 3rd — USA would need to be among the 8 best 3rd-place teams across all 12 groups to advance."};
+    return {cls:"v-out",badge:"Eliminated",
+      txt:"Cannot reach the Round of 32 in this scenario."};
+  }
+  function ucPoints(uc){
+    let p=g.teams[USA_TEAM].Pts;
+    uc.forEach(({m,res})=>{const win=(m.a===USA_TEAM&&res==="a")||(m.b===USA_TEAM&&res==="b");
+      if(res==="d")p++;else if(win)p+=3;});
+    return p;
+  }
+
+  const usaRow=g.rows.find(r=>r.team===USA_TEAM);
+  const usaPos=g.rows.indexOf(usaRow)+1;
+  let h=`<div class="usanote">Group D — the top 2 advance to the Round of 32. The 8 best 3rd-place teams across all 12 groups also go through. Table and results update live from ESPN.</div>`;
+
+  // Headline: where USA can still finish, best to worst.
+  let gbr=4,gwr=1;
+  usaCombos.forEach(uc=>{const a=aggregate(uc);gbr=Math.min(gbr,a.br);gwr=Math.max(gwr,a.wr);});
+  if(usaRow){
+    h+=`<div class="headcard">`;
+    if(!g.remaining.length){
+      h+=usaPos<=2?`🇺🇸 <b>USA finished ${ORD[usaPos]} in Group D</b> — through to the Round of 32!`
+        :usaPos===3?`🇺🇸 <b>USA finished 3rd in Group D.</b> Advancing depends on being one of the 8 best 3rd-place teams.`
+        :`🇺🇸 <b>USA finished ${ORD[usaPos]} in Group D</b> — eliminated.`;
+    }else{
+      h+=`🇺🇸 <b>USA: ${usaRow.Pts} pt${usaRow.Pts===1?"":"s"} after ${usaRow.P} game${usaRow.P===1?"":"s"}</b> — currently ${ORD[usaPos]} in Group D.<br>`
+        +`With the group as it stands, USA can still finish as high as <b>${ORD[gbr]}</b> and as low as <b>${ORD[gwr]}</b>.`;
+    }
+    h+=`</div>`;
+  }
+
+  // Current table.
+  h+=`<div class="grouptbl" style="margin-top:16px"><h3>Group D — current table</h3><div class="standwrap">
+    <table class="stand"><thead><tr><th>#</th><th class="tm">Team</th><th>P</th><th>W</th><th>D</th><th>L</th>
+    <th>GF</th><th>GA</th><th>GD</th><th>Pts</th></tr></thead><tbody>`;
+  g.rows.forEach((r,i)=>{
+    const pos=i+1,cls=[];if(pos<=2)cls.push("qual");if(r.team===USA_TEAM)cls.push("meRow");
+    const gds=(r.GD>0?"+":"")+r.GD;
+    h+=`<tr class="${cls.join(" ")}"><td class="pos">${pos}</td><td class="tm">${standTeam(r.team)}</td>
+      <td>${r.P}</td><td>${r.W}</td><td>${r.D}</td><td>${r.L}</td>
+      <td>${r.GF}</td><td>${r.GA}</td><td>${gds}</td><td class="pts">${r.Pts}</td></tr>`;
+  });
+  h+=`</tbody></table></div></div>`;
+
+  // Remaining group fixtures.
+  if(g.remaining.length){
+    h+=`<div class="sechead">Remaining Group D games</div><ul class="remlist">`;
+    g.remaining.forEach(m=>{const d=new Date(m.utc);
+      const usaTag=(m.a===USA_TEAM||m.b===USA_TEAM)?` <span class="rmeta">· 🇺🇸 USA</span>`:"";
+      h+=`<li>${teamHtml(m.a)} <span class="rmeta">vs</span> ${teamHtml(m.b)}`
+        +` <span class="rmeta">· ${dayFmt.format(d)}, ${timeFmt.format(d)} MT</span>${usaTag}</li>`;
+    });
+    h+=`</ul>`;
+  }
+
+  // Scenario breakdown by USA's own remaining results.
+  h+=`<div class="sechead">USA's paths</div>`;
+  if(!usaRem.length){
+    if(g.remaining.length){
+      h+=`<div class="usanote">USA have finished their group games. Their final position now depends only on the remaining Group D results above.</div>`;
+      const a=aggregate([]),v=verdict(a);
+      h+=`<div class="scen"><div class="path"><span>However the rest of Group D plays out</span>`
+        +`<span class="badge2 ${v.cls}">${v.badge}</span></div><div class="detail">${v.txt}</div></div>`;
+    }else{
+      h+=`<div class="usanote">All Group D games are complete — see the verdict above.</div>`;
+    }
+  }else{
+    const sorted=usaCombos.map(uc=>({uc,pts:ucPoints(uc),a:aggregate(uc)}))
+      .sort((x,y)=>y.pts-x.pts);
+    sorted.forEach(({uc,pts,a})=>{
+      const v=verdict(a);
+      const label=uc.map(({m,res})=>usaResultLabel(m,res))
+        .map(s=>s.charAt(0).toUpperCase()+s.slice(1)).join(", then ");
+      h+=`<div class="scen"><div class="path"><span>${label} <span class="pathpts">→ ${pts} pts</span></span>`
+        +`<span class="badge2 ${v.cls}">${v.badge}</span></div><div class="detail">${v.txt}</div></div>`;
+    });
+    h+=`<div class="usanote" style="margin-top:12px">Each verdict accounts for every possible result in the other Group D games. “Goal difference” notes appear where two teams could finish level on points. 3rd-place qualification also depends on results in the other 11 groups.</div>`;
+  }
+
+  host.innerHTML=h;
+}
+
+// ---- View switching: Schedule <-> Standings <-> USA ----
 let view="schedule";
 function setView(v){
   view=v;
   document.querySelectorAll(".vtab").forEach(t=>t.classList.toggle("active",t.dataset.v===v));
-  const sched=v==="schedule";
+  const sched=v==="schedule",stand=v==="standings",usa=v==="usa";
   document.getElementById("schedctrls").style.display=sched?"":"none";
   document.getElementById("count").style.display=sched?"":"none";
   document.getElementById("list").style.display=sched?"":"none";
-  document.getElementById("standnote").style.display=sched?"none":"";
-  document.getElementById("standings").style.display=sched?"none":"";
+  document.getElementById("standnote").style.display=stand?"":"none";
+  document.getElementById("standings").style.display=stand?"":"none";
+  document.getElementById("usa").style.display=usa?"":"none";
   if(sched){render();}
-  else{renderStandings();fetchStandings();}
+  else if(stand){renderStandings();fetchStandings();}
+  else{renderUSA();}
 }
 document.querySelectorAll(".vtab").forEach(t=>t.addEventListener("click",()=>setView(t.dataset.v)));
 
