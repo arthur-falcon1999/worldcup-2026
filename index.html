@@ -56,6 +56,7 @@
   .stand td.tm a.team{color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted)}
   .stand td.tm a.team:hover{color:var(--accent);border-bottom-color:var(--accent)}
   .count{color:var(--muted);font-size:13px;margin:14px auto 0;max-width:920px;padding:0 16px}
+  .stand tbody tr.cutoff td{border-top:2px dashed var(--accent2)}
   .stand tbody tr.meRow{background:rgba(255,210,74,.12)}
   .stand tr.meRow .pos{color:var(--accent2)}
   .stand tr.qual.meRow{background:rgba(255,210,74,.16)}
@@ -155,6 +156,7 @@
       <span class="vtab active" data-v="schedule">📅 Schedule</span>
       <span class="vtab" data-v="standings">📊 Group standings</span>
       <span class="vtab" data-v="usa">🇺🇸 USA scenarios</span>
+      <span class="vtab" data-v="thirds">🥉 3rd-place race</span>
     </div>
     <div id="schedctrls">
     <div class="searchrow">
@@ -195,6 +197,7 @@
 <main id="list"></main>
 <main id="standings" style="display:none"></main>
 <main id="usa" style="display:none"></main>
+<main id="thirds" style="display:none"></main>
 <div class="foot">
   Schedule per official FIFA fixtures. Kickoff times stored in UTC and converted to America/Denver in your browser.<br>
   Tap any team name to open its official FIFA.com page. Number in parentheses is the team's FIFA/Coca-Cola World Ranking (1 April 2026 update).<br>
@@ -553,6 +556,7 @@ async function fetchStandings(){
   }catch(e){ if(!STANDINGS.length) standErr="Couldn't load standings right now — try again shortly."; }
   if(view==="standings") renderStandings();
   if(view==="usa") renderUSA();
+  if(view==="thirds") renderThirds();
 }
 function renderStandings(){
   const host=document.getElementById("standings");
@@ -582,6 +586,53 @@ function renderStandings(){
     html+=`</tbody></table></div></div>`;
   }
   host.innerHTML=html;
+}
+
+// ---- Best 3rd-place race (tournament-wide, live from ESPN standings) ----
+function ordinal(n){const s=["th","st","nd","rd"],v=n%100;return n+(s[(v-20)%10]||s[v]||s[0]);}
+// The 3rd-placed team from each group, ranked by FIFA tiebreakers
+// (points, then goal difference, then goals scored). Group letter as a stable fallback.
+function thirdPlaceTable(){
+  if(!STANDINGS.length)return [];
+  const rows=[];
+  STANDINGS.forEach(g=>{
+    const L=(g.name||"").replace(/^Group\s+/,"")||g.name;
+    const entries=((g.standings&&g.standings.entries)||[]).slice()
+      .sort((a,b)=>statN(a,"rank")-statN(b,"rank"));
+    const e=entries[2];
+    if(!e)return;
+    const gf=statN(e,"pointsFor"),ga=statN(e,"pointsAgainst");
+    rows.push({group:L,team:canonTeam(e.team.displayName),name:e.team.displayName,
+      P:statN(e,"gamesPlayed"),W:statN(e,"wins"),D:statN(e,"ties"),L:statN(e,"losses"),
+      GF:gf,GA:ga,GD:gf-ga,Pts:statN(e,"points")});
+  });
+  rows.sort((a,b)=>b.Pts-a.Pts||b.GD-a.GD||b.GF-a.GF||a.group.localeCompare(b.group));
+  return rows;
+}
+function renderThirds(){
+  const host=document.getElementById("thirds");
+  const rows=thirdPlaceTable();
+  if(!rows.length){
+    host.innerHTML=`<div class="empty">${standErr||"Loading 3rd-place standings…"}</div>`;return;
+  }
+  let h=`<div class="usanote">The <b>8 best 3rd-placed teams</b> (out of all 12 groups) advance to the Round of 32, alongside the top 2 from every group. Ranked by points, then goal difference, then goals scored. Provisional — updates live and shifts as groups finish.</div>`;
+  h+=`<div class="grouptbl" style="margin-top:14px"><h3>Best 3rd-place race</h3><div class="standwrap">
+    <table class="stand"><thead><tr><th>#</th><th>Grp</th><th class="tm">Team</th><th>P</th><th>W</th><th>D</th><th>L</th>
+    <th>GF</th><th>GA</th><th>GD</th><th>Pts</th></tr></thead><tbody>`;
+  rows.forEach((r,i)=>{
+    const pos=i+1,cls=[];
+    if(pos<=8)cls.push("qual");
+    if(pos===9)cls.push("cutoff");
+    if(r.team===USA_TEAM)cls.push("meRow");
+    const gds=(r.GD>0?"+":"")+r.GD;
+    const nm=r.team?standTeam(r.team):r.name;
+    h+=`<tr class="${cls.join(" ")}"><td class="pos">${pos}</td><td>${r.group}</td><td class="tm">${nm}</td>
+      <td>${r.P}</td><td>${r.W}</td><td>${r.D}</td><td>${r.L}</td>
+      <td>${r.GF}</td><td>${r.GA}</td><td>${gds}</td><td class="pts">${r.Pts}</td></tr>`;
+  });
+  h+=`</tbody></table></div></div>`;
+  h+=`<div class="usanote" style="margin-top:10px">Green = currently qualifying (top 8). The dashed line is the cut-off between 8th and 9th. Final tiebreakers beyond goals scored (fair-play points, then drawing of lots) aren't shown here. Groups may have played a different number of games, so early-tournament positions move a lot.</div>`;
+  host.innerHTML=h;
 }
 
 // ---- USA "road to the knockouts" scenarios ----
@@ -807,6 +858,11 @@ function renderUSA(){
       h+=`🇺🇸 <b>USA: ${usaRow.Pts} pt${usaRow.Pts===1?"":"s"} after ${usaRow.P} game${usaRow.P===1?"":"s"}</b> — currently ${ORD[usaPos]} in Group D.<br>`
         +`With the group as it stands, USA can still finish as high as <b>${ORD[gbr]}</b> and as low as <b>${ORD[gwr]}</b>.`;
     }
+    if(usaPos===3){
+      const thirds=thirdPlaceTable(),ti=thirds.findIndex(r=>r.team===USA_TEAM);
+      if(ti>=0)h+=`<br>As a 3rd-placed team, USA currently rank <b>${ordinal(ti+1)} of ${thirds.length}</b> — `
+        +`${ti<8?"inside the top-8 cut (advancing)":"outside the top-8 cut (out as things stand)"}. See the 🥉 3rd-place race tab.`;
+    }
     h+=`</div>`;
   }
 
@@ -896,16 +952,18 @@ let view="schedule";
 function setView(v){
   view=v;
   document.querySelectorAll(".vtab").forEach(t=>t.classList.toggle("active",t.dataset.v===v));
-  const sched=v==="schedule",stand=v==="standings",usa=v==="usa";
+  const sched=v==="schedule",stand=v==="standings",usa=v==="usa",thirds=v==="thirds";
   document.getElementById("schedctrls").style.display=sched?"":"none";
   document.getElementById("count").style.display=sched?"":"none";
   document.getElementById("list").style.display=sched?"":"none";
   document.getElementById("standnote").style.display=stand?"":"none";
   document.getElementById("standings").style.display=stand?"":"none";
   document.getElementById("usa").style.display=usa?"":"none";
+  document.getElementById("thirds").style.display=thirds?"":"none";
   if(sched){render();}
   else if(stand){renderStandings();fetchStandings();}
-  else{renderUSA();fetchStandings();}
+  else if(usa){renderUSA();fetchStandings();}
+  else{renderThirds();fetchStandings();}
 }
 document.querySelectorAll(".vtab").forEach(t=>t.addEventListener("click",()=>setView(t.dataset.v)));
 
@@ -948,7 +1006,7 @@ countdown();setInterval(countdown,60000);
 render();
 fetchPast();
 fetchLive();setInterval(fetchLive,30000);
-fetchStandings();setInterval(()=>{if(view==="standings"||view==="usa")fetchStandings();},60000);
+fetchStandings();setInterval(()=>{if(view!=="schedule")fetchStandings();},60000);
 
 // ---- auto-update: notice when a newer build is deployed, offer a refresh ----
 let _verTag=null;
