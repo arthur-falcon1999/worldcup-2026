@@ -81,6 +81,27 @@
   .v-maybe{background:rgba(80,150,255,.14);color:#7fb0ff;border:1px solid rgba(80,150,255,.5)}
   .v-third{background:rgba(255,210,74,.14);color:var(--accent2);border:1px solid rgba(255,210,74,.5)}
   .v-out{background:rgba(255,90,95,.14);color:var(--live);border:1px solid rgba(255,90,95,.5)}
+  /* knockout bracket */
+  .brwrap{overflow-x:auto;padding:8px 2px 12px;-webkit-overflow-scrolling:touch}
+  .brcols{display:flex;gap:12px;min-width:max-content;align-items:stretch}
+  .brcol{display:flex;flex-direction:column;min-width:160px}
+  .brhdr{font-size:12px;font-weight:700;color:var(--accent2);text-align:center;padding:6px 0 8px}
+  .brcards{display:flex;flex-direction:column;justify-content:space-around;flex:1;gap:8px}
+  .brcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:5px 8px;cursor:pointer}
+  .brcard:hover{border-color:#3a4670;background:var(--panel2)}
+  .brteam{display:flex;align-items:center;gap:5px;font-size:13px;padding:2px 0;
+    white-space:nowrap;overflow:hidden}
+  .brteam .brn{overflow:hidden;text-overflow:ellipsis}
+  .brteam .flag{font-size:15px;margin-right:0}
+  .brph{color:var(--muted);font-style:italic;font-size:11.5px}
+  .brsc{margin-left:auto;font-weight:800;padding-left:8px;color:var(--text)}
+  .brsc.brwin{color:var(--accent)}
+  .brteam.brwon .brn{font-weight:700}
+  .brteam.brusa .brn{color:var(--accent2);font-weight:700}
+  .brmeta{font-size:10px;color:var(--muted);margin-top:3px;text-align:right}
+  .br3rd{margin-top:20px;border-top:1px dashed var(--line);padding-top:12px}
+  .br3lbl{font-size:11px;color:var(--muted);text-align:center;margin-bottom:7px}
   main{max-width:920px;margin:0 auto;padding:8px 16px 60px}
   .prevtoggle{display:flex;align-items:center;gap:9px;cursor:pointer;user-select:none;
     background:var(--panel);border:1px solid var(--line);border-radius:12px;
@@ -154,8 +175,9 @@
   <div class="wrap">
     <div class="viewtabs">
       <span class="vtab active" data-v="schedule">📅 Schedule</span>
+      <span class="vtab" data-v="bracket">🗺️ Bracket</span>
       <span class="vtab" data-v="standings">📊 Group standings</span>
-      <span class="vtab" data-v="usa">🇺🇸 USA scenarios</span>
+      <span class="vtab" data-v="usa">🇺🇸 USA next</span>
       <span class="vtab" data-v="thirds">🥉 3rd-place race</span>
     </div>
     <div id="schedctrls">
@@ -196,6 +218,7 @@
 <div class="count" id="count"></div>
 <main id="list"></main>
 <main id="standings" style="display:none"></main>
+<main id="bracket" style="display:none"></main>
 <main id="usa" style="display:none"></main>
 <main id="thirds" style="display:none"></main>
 <div class="foot">
@@ -435,7 +458,7 @@ async function fetchLive(){
   for(const d of days){
     try{const r=await fetch(base+d);if(!r.ok)continue;const j=await r.json();ok=true;buildLive(j.events,fresh);}catch(e){}
   }
-  if(ok){LIVE=fresh;stampLive();render();if(view==="usa")renderUSA();}
+  if(ok){LIVE=fresh;stampLive();render();if(view==="usa")renderUSA();if(view==="bracket")renderBracket();}
 }
 // One-time backfill: fetch scores for every tournament day already finished
 // (older than the live window), so past results show up — not just recent games.
@@ -448,7 +471,7 @@ async function fetchPast(){
   }
   if(PAST.size){
     for(const [k,v] of PAST){if(!LIVE.has(k))LIVE.set(k,v);}   // fold into current view and repaint
-    render();if(view==="usa")renderUSA();
+    render();if(view==="usa")renderUSA();if(view==="bracket")renderBracket();
   }
 }
 function stampLive(){
@@ -557,6 +580,7 @@ async function fetchStandings(){
   if(view==="standings") renderStandings();
   if(view==="usa") renderUSA();
   if(view==="thirds") renderThirds();
+  if(view==="bracket") renderBracket();
 }
 function renderStandings(){
   const host=document.getElementById("standings");
@@ -635,9 +659,110 @@ function renderThirds(){
   host.innerHTML=h;
 }
 
-// ---- USA "road to the knockouts" scenarios ----
-// Builds the USA's group table live from finished results, then enumerates every
-// combination of remaining group results to spell out what each USA path means.
+// ---- Knockout bracket (self-resolving from live standings + ESPN) ----
+// We never hardcode results. Group winners/runners-up resolve from the live group
+// tables once a group finishes; knockout winners propagate as ESPN reports them;
+// 3rd-place slots fill in from ESPN's real fixture once FIFA's allocation is set.
+const brDayFmt=new Intl.DateTimeFormat("en-US",{timeZone:TZ,month:"short",day:"numeric"});
+const SHORTNM={"Bosnia and Herzegovina":"Bosnia & H.","South Africa":"S. Africa",
+  "South Korea":"S. Korea","New Zealand":"N. Zealand","Saudi Arabia":"Saudi Arabia"};
+function shortNm(t){return SHORTNM[t]||t;}
+function matchByNum(n){return M.find(x=>x.n===n);}
+function koLive(m){return m?LIVE.get("t|"+Date.parse(m.utc))||null:null;}
+function groupEntries(letter){
+  const grp=STANDINGS.find(s=>(s.name||"")==="Group "+letter);
+  if(!grp||!grp.standings)return null;
+  return (grp.standings.entries||[]).slice().sort((a,b)=>statN(a,"rank")-statN(b,"rank"));
+}
+function groupDone(letter){
+  const r=groupEntries(letter);
+  return !!(r&&r.length>=4&&r.every(e=>statN(e,"gamesPlayed")>=3));
+}
+// Winner (pos 1) / runner-up (pos 2) of a group — only once the group has finished.
+function groupSide(letter,pos){
+  if(!groupDone(letter))return null;
+  const r=groupEntries(letter),e=r&&r[pos-1];
+  if(!e)return null;
+  const nm=e.team.displayName;return {name:nm,our:canonTeam(nm)};
+}
+// Winner & loser of a finished knockout match (via ESPN, matched on kickoff time).
+function koOutcome(n){
+  const lv=koLive(matchByNum(n));
+  if(lv&&lv.state==="post"){
+    const w=lv.home.winner?lv.home:(lv.away.winner?lv.away:null);
+    const l=lv.home.winner?lv.away:(lv.away.winner?lv.home:null);
+    if(w&&l)return {winner:{name:w.name,our:w.our},loser:{name:l.name,our:l.our}};
+  }
+  return null;
+}
+function resolveToken(tok){               // a single group-fed R32 side
+  let m=/^Winner ([A-Z])$/.exec(tok); if(m)return groupSide(m[1],1);
+  m=/^Runner-up ([A-Z])$/.exec(tok);    if(m)return groupSide(m[1],2);
+  return null;                            // 3rd-place combos resolve only via ESPN
+}
+// Both sides of any knockout match: {a,b} each {name,our}|null, plus live score obj.
+function bracketSides(m){
+  const lv=koLive(m);
+  const espnReal=lv&&lv.home&&lv.away&&lv.home.name&&lv.away.name&&
+    (lv.state==="in"||lv.state==="post"||(lv.home.our&&lv.away.our));
+  if(espnReal)
+    return {a:{name:lv.home.name,our:lv.home.our},b:{name:lv.away.name,our:lv.away.our},
+            lv,la:m.a||"",lb:m.b||""};
+  if(m.b)return {a:resolveToken(m.a),b:resolveToken(m.b),lv:null,la:m.a,lb:m.b};
+  let w=/^Winners (\d+) v (\d+)$/.exec(m.a);
+  if(w){const o1=koOutcome(+w[1]),o2=koOutcome(+w[2]);
+    return {a:o1&&o1.winner||null,b:o2&&o2.winner||null,lv:null,
+            la:"Winner M"+w[1],lb:"Winner M"+w[2]};}
+  let l=/^Losers (\d+) v (\d+)$/.exec(m.a);
+  if(l){const o1=koOutcome(+l[1]),o2=koOutcome(+l[2]);
+    return {a:o1&&o1.loser||null,b:o2&&o2.loser||null,lv:null,
+            la:"Loser M"+l[1],lb:"Loser M"+l[2]};}
+  return {a:null,b:null,lv:null,la:m.a,lb:m.b};
+}
+function brRow(side,label,lv,homeAway){
+  let cls="brteam",nameHtml,sc="";
+  if(side&&side.our){
+    nameHtml=`${flag(side.our)}<span class="brn">${shortNm(side.our)}</span>`;
+    if(side.our===USA_TEAM)cls+=" brusa";
+  }else if(side&&side.name){
+    nameHtml=`<span class="brn">${side.name}</span>`;
+  }else{
+    nameHtml=`<span class="brn brph">${label||"TBD"}</span>`;
+  }
+  if(lv&&(lv.state==="in"||lv.state==="post")){
+    const s=homeAway==="a"?lv.home:lv.away;
+    const won=lv.state==="post"&&s.winner;
+    sc=`<span class="brsc${won?" brwin":""}">${s.score}</span>`;
+    if(won)cls+=" brwon";
+  }
+  return `<div class="${cls}">${nameHtml}${sc}</div>`;
+}
+function brCard(m){
+  const s=bracketSides(m),d=new Date(m.utc);
+  return `<div class="brcard" data-espn="${espnUrl(m,koLive(m))}" title="Match ${m.n} · open on ESPN ↗">
+      ${brRow(s.a,s.la,s.lv,"a")}
+      ${brRow(s.b,s.lb,s.lv,"b")}
+      <div class="brmeta">M${m.n} · ${brDayFmt.format(d)}</div>
+    </div>`;
+}
+function renderBracket(){
+  const host=document.getElementById("bracket");
+  const rounds=[["Round of 32","Round of 32"],["Round of 16","Round of 16"],
+    ["Quarter-final","Quarter-finals"],["Semi-final","Semi-finals"],["Final","Final"]];
+  let cols="";
+  rounds.forEach(([stage,hdr])=>{
+    let cards=M.filter(m=>m.s===stage).map(brCard).join("");
+    if(stage==="Final"){
+      const tp=M.find(m=>m.s==="Third-place");
+      if(tp)cards+=`<div class="br3rd"><div class="br3lbl">🥉 Third-place play-off</div>${brCard(tp)}</div>`;
+    }
+    cols+=`<div class="brcol"><div class="brhdr">${hdr}</div><div class="brcards">${cards}</div></div>`;
+  });
+  const note=`<div class="usanote">Top 2 of every group plus the <b>8 best 3rd-placed teams</b> reach the Round of 32. Group winners and runners-up fill in as each group finishes; the 3rd-place slots (e.g. “3rd A/E/H/I/J”) resolve to a real team once FIFA’s allocation is set, and the whole bracket updates live from ESPN as knockout fixtures are confirmed. Scroll sideways to follow the path to the Final — tap any tie to open it on ESPN.</div>`;
+  host.innerHTML=note+`<div class="brwrap"><div class="brcols">${cols}</div></div>`;
+}
+
+// ---- USA — who's next (replaces the old scenario enumerator) ----
 const USA_TEAM="USA";
 function usaGroupName(){
   const m=M.find(x=>x.s.startsWith("Group")&&(x.a===USA_TEAM||x.b===USA_TEAM));
@@ -703,171 +828,53 @@ function rankBand(pts){
     if(pts[t]>u)above++;else if(pts[t]===u)tied++;}
   return {best:above+1,worst:above+tied+1};
 }
-function usaResultLabel(m,res){
-  const opp=m.a===USA_TEAM?m.b:m.a;
-  if(res==="d")return `draw with ${opp}`;
-  const usaWon=(m.a===USA_TEAM&&res==="a")||(m.b===USA_TEAM&&res==="b");
-  return usaWon?`beat ${opp}`:`lose to ${opp}`;
-}
-// Plain-English result of one (non-USA) fixture: "Türkiye beat Paraguay", "X and Y draw".
-function gameResultPhrase(m,res){
-  if(res==="d")return `${m.a} and ${m.b} draw`;
-  return res==="a"?`${m.a} beat ${m.b}`:`${m.b} beat ${m.a}`;
-}
-// A set of acceptable results for one fixture, phrased compactly (uses negation when tidier).
-function gameClause(m,ok){
-  if(ok.length>=3)return "any result";
-  if(ok.length===1)return gameResultPhrase(m,ok[0]);
-  const missing=["a","d","b"].find(r=>!ok.includes(r));
-  if(missing==="a")return `${m.a} fail to beat ${m.b}`;
-  if(missing==="b")return `${m.b} fail to beat ${m.a}`;
-  return `${m.a} v ${m.b} doesn't end in a draw`;
-}
 const ORD=["","1st","2nd","3rd","4th"];
 function renderUSA(){
   const host=document.getElementById("usa");
   const g=groupTable();
   const grpLetter=g.grp.split(" ")[1]||"D";
-  const usaRem=g.remaining.filter(m=>m.a===USA_TEAM||m.b===USA_TEAM);
-  const otherRem=g.remaining.filter(m=>!(m.a===USA_TEAM||m.b===USA_TEAM));
-  const usaCombos=product(usaRem),otherCombos=product(otherRem);
-
-  // Classify USA's finish for one full scenario (USA path + one set of other results):
-  // safe = top-2 no matter the goal difference; gd = top-2 only if GD favours USA;
-  // third = best is 3rd; out = 4th.
-  function classify(uc,oc){
-    const b=rankBand(pointsAfter(g.teams,uc.concat(oc)));
-    if(b.worst<=2)return "safe";
-    if(b.best<=2)return "gd";
-    if(b.best===3)return "third";
-    return "out";
-  }
-  // Does a predicate over "other results" depend only on fixture i? If so return res->bool.
-  function dependsOnlyOn(pred,i){
-    const byRes={};
-    for(const oc of otherCombos){
-      const r=oc[i].res,v=pred(oc);
-      if(byRes[r]===undefined)byRes[r]=v; else if(byRes[r]!==v)return null;
-    }
-    return byRes;
-  }
-  // Readable clauses describing the set of "other results" that satisfy pred.
-  // Returns [] = always true, null = never true, else an array of OR-ed clauses.
-  function clausesFor(pred){
-    if(!otherRem.length)return pred([])?[]:null;
-    for(let i=0;i<otherRem.length;i++){          // does one fixture alone decide it?
-      const dep=dependsOnlyOn(pred,i);
-      if(dep){
-        const ok=["a","d","b"].filter(r=>dep[r]);
-        if(!ok.length)return null;
-        if(ok.length===3)return [];
-        return [gameClause(otherRem[i],ok)];
-      }
-    }
-    if(otherRem.length===2){                     // two fixtures: collapse by the first
-      const g1=otherRem[0],g2=otherRem[1],out=[];
-      for(const r1 of ["a","d","b"]){
-        const ok2=["a","d","b"].filter(r2=>pred([{m:g1,res:r1},{m:g2,res:r2}]));
-        if(!ok2.length)continue;
-        out.push(ok2.length===3?gameResultPhrase(g1,r1)
-          :`${gameResultPhrase(g1,r1)} and ${gameClause(g2,ok2)}`);
-      }
-      return out.length?out:null;
-    }
-    const q=otherCombos.filter(pred);            // fallback: enumerate
-    if(!q.length)return null;
-    return q.map(oc=>oc.map(({m,res})=>gameResultPhrase(m,res)).join(" and "));
-  }
-  // Pick the shorter of "if <qualifying>" vs "unless <failing>". {neg, text} or null.
-  function describe(pred){
-    const yes=clausesFor(pred);
-    if(yes===null)return null;
-    if(!yes.length)return {neg:false,text:"no matter the other Group D results"};
-    const no=clausesFor(oc=>!pred(oc));
-    if(no&&no.length&&no.length<yes.length)return {neg:true,text:no.join("; or ")};
-    return {neg:false,text:yes.join("; or ")};
-  }
-  function throughLine(pred,verb,allowNeg){    // verb e.g. "Through", "Reach the top 2"
-    const d=describe(pred);if(!d)return verb+".";
-    if(d.text.startsWith("no matter"))return `${verb} ${d.text}.`;
-    if(d.neg&&allowNeg!==false)return `${verb} unless ${d.text}.`;
-    if(d.neg){const yes=clausesFor(pred);return `${verb} if ${(yes||[]).join("; or ")}.`;}
-    return `${verb} if ${d.text}.`;
-  }
-  function verdict(uc){
-    const cls=otherCombos.map(oc=>classify(uc,oc));
-    const has=v=>cls.includes(v);
-    if(cls.every(v=>v==="safe"))
-      return {cls:"v-in",badge:"✓ Through",
-        txt:"Qualifies for the Round of 32 — a top-2 finish is guaranteed in this scenario."};
-    if(has("safe")){
-      let t="✅ "+throughLine(oc=>classify(uc,oc)==="safe","Through");
-      if(has("gd"))t+=" On the other results it comes down to goal difference.";
-      if(has("third"))t+=" If USA slip out of the top 2, a 3rd-place finish could still advance (8 best 3rd-placed teams).";
-      return {cls:"v-maybe",badge:"Through if…",txt:t};
-    }
-    if(has("gd")){
-      let t=throughLine(oc=>{const c=classify(uc,oc);return c==="safe"||c==="gd";},"Reach the top 2 only on goal difference, and only",false);
-      if(has("third"))t+=" Otherwise the only route is a 3rd-place finish (8 best 3rd-placed teams).";
-      return {cls:"v-maybe",badge:"Top-2 on GD",txt:t};
-    }
-    if(has("third"))
-      return {cls:"v-third",badge:"3rd-place route",
-        txt:"Can finish no higher than 3rd — USA would need to be among the 8 best 3rd-placed teams across all 12 groups to advance."};
-    return {cls:"v-out",badge:"Eliminated",txt:"Cannot reach the Round of 32 in this scenario."};
-  }
-  function bandRange(uc){   // best/worst rank for headline
-    let br=4,wr=1;
-    otherCombos.forEach(oc=>{const b=rankBand(pointsAfter(g.teams,uc.concat(oc)));
-      br=Math.min(br,b.best);wr=Math.max(wr,b.worst);});
-    return {br,wr};
-  }
-  function ucPoints(uc){
-    let p=g.teams[USA_TEAM].Pts;
-    uc.forEach(({m,res})=>{const win=(m.a===USA_TEAM&&res==="a")||(m.b===USA_TEAM&&res==="b");
-      if(res==="d")p++;else if(win)p+=3;});
-    return p;
-  }
-  // Current live position of a team in another group (1=leader, 2=runner-up, 3=third).
-  function groupRows(letter){
-    if(!STANDINGS.length)return null;
-    const grp=STANDINGS.find(s=>(s.name||"")==="Group "+letter);
-    if(!grp||!grp.standings)return null;
-    return (grp.standings.entries||[]).slice().sort((a,b)=>statN(a,"rank")-statN(b,"rank"));
-  }
+  const allRem=g.remaining;
+  const done=!allRem.length;
+  // Live position of a team in any group (1=winner, 2=runner-up, 3=third) → linked name.
   function teamAt(letter,pos){
-    const r=groupRows(letter);if(!r||!r[pos-1])return null;
+    const r=groupEntries(letter);if(!r||!r[pos-1])return null;
     const nm=r[pos-1].team.displayName,our=canonTeam(nm);
     return our?standTeam(our):nm;
   }
+  // USA's best- and worst-possible finish (points only) over every remaining group result.
+  function band(){
+    let br=4,wr=1;
+    product(allRem).forEach(asn=>{const b=rankBand(pointsAfter(g.teams,asn));
+      br=Math.min(br,b.best);wr=Math.max(wr,b.worst);});
+    return {br,wr};
+  }
 
   const usaRow=g.rows.find(r=>r.team===USA_TEAM);
-  const usaPos=g.rows.indexOf(usaRow)+1;
-  let h=`<div class="usanote">Group ${grpLetter} — the top 2 advance to the Round of 32. The 8 best 3rd-place teams across all 12 groups also go through. Table and results update live from ESPN.</div>`;
+  const usaPos=usaRow?g.rows.indexOf(usaRow)+1:0;
+  const {br:gbr,wr:gwr}=done?{br:usaPos,wr:usaPos}:band();
+  let h=`<div class="usanote">Group ${grpLetter} — the top 2 advance to the Round of 32, and the 8 best 3rd-placed teams across all 12 groups also go through. Updates live from ESPN.</div>`;
 
-  // Headline: where USA can still finish, best to worst.
-  let gbr=4,gwr=1;
-  usaCombos.forEach(uc=>{const r=bandRange(uc);gbr=Math.min(gbr,r.br);gwr=Math.max(gwr,r.wr);});
+  // Headline: where USA stand and where they can finish.
   if(usaRow){
     h+=`<div class="headcard">`;
-    if(!g.remaining.length){
-      h+=usaPos<=2?`🇺🇸 <b>USA finished ${ORD[usaPos]} in Group D</b> — through to the Round of 32!`
-        :usaPos===3?`🇺🇸 <b>USA finished 3rd in Group D.</b> Advancing depends on being one of the 8 best 3rd-place teams.`
-        :`🇺🇸 <b>USA finished ${ORD[usaPos]} in Group D</b> — eliminated.`;
+    if(done){
+      h+=usaPos<=2?`🇺🇸 <b>USA finished ${ORD[usaPos]} in Group ${grpLetter}</b> — into the Round of 32!`
+        :usaPos===3?`🇺🇸 <b>USA finished 3rd in Group ${grpLetter}.</b> Through only if they're one of the 8 best 3rd-placed teams.`
+        :`🇺🇸 <b>USA finished ${ORD[usaPos]} in Group ${grpLetter}</b> — eliminated.`;
     }else{
-      h+=`🇺🇸 <b>USA: ${usaRow.Pts} pt${usaRow.Pts===1?"":"s"} after ${usaRow.P} game${usaRow.P===1?"":"s"}</b> — currently ${ORD[usaPos]} in Group D.<br>`
-        +`With the group as it stands, USA can still finish as high as <b>${ORD[gbr]}</b> and as low as <b>${ORD[gwr]}</b>.`;
+      h+=`🇺🇸 <b>USA: ${usaRow.Pts} pt${usaRow.Pts===1?"":"s"} after ${usaRow.P} game${usaRow.P===1?"":"s"}</b> — currently ${ORD[usaPos]} in Group ${grpLetter}, ${allRem.length} game${allRem.length===1?"":"s"} left.<br>`
+        +`As things stand they can still finish as high as <b>${ORD[gbr]}</b> and as low as <b>${ORD[gwr]}</b>.`;
     }
     if(usaPos===3){
       const thirds=thirdPlaceTable(),ti=thirds.findIndex(r=>r.team===USA_TEAM);
-      if(ti>=0)h+=`<br>As a 3rd-placed team, USA currently rank <b>${ordinal(ti+1)} of ${thirds.length}</b> — `
+      if(ti>=0)h+=`<br>Among 3rd-placed teams, USA currently rank <b>${ordinal(ti+1)} of ${thirds.length}</b> — `
         +`${ti<8?"inside the top-8 cut (advancing)":"outside the top-8 cut (out as things stand)"}. See the 🥉 3rd-place race tab.`;
     }
     h+=`</div>`;
   }
 
-  // Current table.
-  h+=`<div class="grouptbl" style="margin-top:16px"><h3>Group D — current table</h3><div class="standwrap">
+  // Current Group table.
+  h+=`<div class="grouptbl" style="margin-top:16px"><h3>Group ${grpLetter} — current table</h3><div class="standwrap">
     <table class="stand"><thead><tr><th>#</th><th class="tm">Team</th><th>P</th><th>W</th><th>D</th><th>L</th>
     <th>GF</th><th>GA</th><th>GD</th><th>Pts</th></tr></thead><tbody>`;
   g.rows.forEach((r,i)=>{
@@ -880,38 +887,14 @@ function renderUSA(){
   h+=`</tbody></table></div></div>`;
 
   // Remaining group fixtures.
-  if(g.remaining.length){
-    h+=`<div class="sechead">Remaining Group D games</div><ul class="remlist">`;
-    g.remaining.forEach(m=>{const d=new Date(m.utc);
+  if(allRem.length){
+    h+=`<div class="sechead">Remaining Group ${grpLetter} games</div><ul class="remlist">`;
+    allRem.forEach(m=>{const d=new Date(m.utc);
       const usaTag=(m.a===USA_TEAM||m.b===USA_TEAM)?` <span class="rmeta">· 🇺🇸 USA</span>`:"";
       h+=`<li>${teamHtml(m.a)} <span class="rmeta">vs</span> ${teamHtml(m.b)}`
         +` <span class="rmeta">· ${dayFmt.format(d)}, ${timeFmt.format(d)} MT</span>${usaTag}</li>`;
     });
     h+=`</ul>`;
-  }
-
-  // Scenario breakdown by USA's own remaining results.
-  h+=`<div class="sechead">USA's paths</div>`;
-  if(!usaRem.length){
-    if(g.remaining.length){
-      h+=`<div class="usanote">USA have finished their group games. Their final position now depends only on the remaining Group ${grpLetter} results above.</div>`;
-      const v=verdict([]);
-      h+=`<div class="scen"><div class="path"><span>However the rest of Group ${grpLetter} plays out</span>`
-        +`<span class="badge2 ${v.cls}">${v.badge}</span></div><div class="detail">${v.txt}</div></div>`;
-    }else{
-      h+=`<div class="usanote">All Group ${grpLetter} games are complete — see the verdict above.</div>`;
-    }
-  }else{
-    const sorted=usaCombos.map(uc=>({uc,pts:ucPoints(uc)}))
-      .sort((x,y)=>y.pts-x.pts);
-    sorted.forEach(({uc,pts})=>{
-      const v=verdict(uc);
-      const label=uc.map(({m,res})=>usaResultLabel(m,res))
-        .map(s=>s.charAt(0).toUpperCase()+s.slice(1)).join(", then ");
-      h+=`<div class="scen"><div class="path"><span>${label} <span class="pathpts">→ ${pts} pts</span></span>`
-        +`<span class="badge2 ${v.cls}">${v.badge}</span></div><div class="detail">${v.txt}</div></div>`;
-    });
-    h+=`<div class="usanote" style="margin-top:12px">Each verdict accounts for every possible result in the other Group ${grpLetter} games. “Goal difference” notes appear where two teams could finish level on points. 3rd-place qualification also depends on results in the other 11 groups.</div>`;
   }
 
   // Round-of-32 opponents if USA finish 1st or 2nd (bracket positions are fixed in advance).
@@ -937,11 +920,17 @@ function renderUSA(){
       +`<span class="badge2 ${badgeCls}">R32 · Match ${m.n}</span></div>`
       +`<div class="detail">Would face ${oppDesc(opp)}.<br>📍 ${m.v} · ${dayFmt.format(d)}, ${timeFmt.format(d)} MT</div></div>`;
   }
-  if(winM||runM){
+  if(done&&usaPos>=3){
     h+=`<div class="sechead">Who USA would play in the Round of 32</div>`;
-    h+=r32Card("If USA win the group (1st)",winM,winTok,"v-in");
-    h+=r32Card("If USA finish 2nd",runM,runTok,"v-maybe");
-    h+=`<div class="usanote" style="margin-top:6px">Round-of-32 matchups are set by bracket position, so the side of the draw is known now — only the opponent's identity firms up as the other groups finish. “Currently” shows who holds that spot today.</div>`;
+    h+= usaPos===3
+      ? `<div class="usanote">USA can only reach the Round of 32 as one of the 8 best 3rd-placed teams. If they squeak through, the opponent is fixed by bracket position — check the 🗺️ Bracket and 🥉 3rd-place race tabs for the live picture.</div>`
+      : `<div class="usanote">USA are out of the tournament, so there's no upcoming knockout opponent. The 🗺️ Bracket tab shows who's still alive.</div>`;
+  }else if(winM||runM){
+    h+=`<div class="sechead">Who USA play next in the Round of 32</div>`;
+    const lead=!done&&usaPos===1, second=!done&&usaPos===2;
+    h+=r32Card(done&&usaPos===1?"USA won the group (1st)":lead?"If USA hold on to win the group (1st) — on track":"If USA win the group (1st)",winM,winTok,"v-in");
+    h+=r32Card(done&&usaPos===2?"USA finished 2nd":second?"If USA finish 2nd — on track":"If USA finish 2nd",runM,runTok,"v-maybe");
+    h+=`<div class="usanote" style="margin-top:6px">Round-of-32 matchups are fixed by bracket position, so the side of the draw is known now — only the opponent's identity firms up as the other groups finish. “Currently” shows who holds that spot today; the 🗺️ Bracket tab has the full picture.</div>`;
   }
 
   host.innerHTML=h;
@@ -952,15 +941,17 @@ let view="schedule";
 function setView(v){
   view=v;
   document.querySelectorAll(".vtab").forEach(t=>t.classList.toggle("active",t.dataset.v===v));
-  const sched=v==="schedule",stand=v==="standings",usa=v==="usa",thirds=v==="thirds";
+  const sched=v==="schedule",bracket=v==="bracket",stand=v==="standings",usa=v==="usa",thirds=v==="thirds";
   document.getElementById("schedctrls").style.display=sched?"":"none";
   document.getElementById("count").style.display=sched?"":"none";
   document.getElementById("list").style.display=sched?"":"none";
+  document.getElementById("bracket").style.display=bracket?"":"none";
   document.getElementById("standnote").style.display=stand?"":"none";
   document.getElementById("standings").style.display=stand?"":"none";
   document.getElementById("usa").style.display=usa?"":"none";
   document.getElementById("thirds").style.display=thirds?"":"none";
   if(sched){render();}
+  else if(bracket){renderBracket();fetchStandings();}
   else if(stand){renderStandings();fetchStandings();}
   else if(usa){renderUSA();fetchStandings();}
   else{renderThirds();fetchStandings();}
@@ -982,6 +973,12 @@ document.getElementById("list").addEventListener("click",e=>{
   if(e.target.closest("a")) return;
   if(e.target.closest(".prevtoggle")){showPast=!showPast;render();return;}
   const card=e.target.closest(".match");
+  if(!card||!card.dataset.espn) return;
+  window.open(card.dataset.espn,"_blank","noopener");
+});
+// Bracket ties also open on ESPN.
+document.getElementById("bracket").addEventListener("click",e=>{
+  const card=e.target.closest(".brcard");
   if(!card||!card.dataset.espn) return;
   window.open(card.dataset.espn,"_blank","noopener");
 });

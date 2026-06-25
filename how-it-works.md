@@ -17,6 +17,7 @@ A single web page showing the **full FIFA World Cup 2026 schedule** (hosted acro
 - **🕐 All kickoff times in Mountain Time** — times are stored in UTC and converted to your local Mountain Time right in the browser, so there's no timezone math to do.
 - **🔍 Search** — type a team name to instantly filter to just their matches.
 - **🏷️ Filter chips** — tap to jump to a group (A through L) or a knockout round (Round of 32, Round of 16, Quarter-finals, Semi-finals, Final).
+- **🗺️ Live bracket** — a full knockout bracket that fills itself in: group winners and runners-up drop into place as each group finishes, knockout winners advance automatically, and the whole thing scrolls from the Round of 32 all the way to the Final.
 - **📅 Today first** — the day's matches sit right at the top; earlier days tuck behind a toggle so you're not scrolling past finished games.
 - **⏳ Countdown** — a live countdown to the opening match.
 - **📊 FIFA rankings** — each team shows its world ranking in parentheses (e.g. "Argentina (1)").
@@ -24,21 +25,25 @@ A single web page showing the **full FIFA World Cup 2026 schedule** (hosted acro
 - **🚩 Flags & clean design** — flag emojis, a dark theme, and a layout that works well on a phone.
 - **🔄 Always fresh** — when a new version is deployed, a small banner offers to reload so you're never stuck on a stale page.
 
-## The four tabs — the live tournament tracker
+## The five tabs — the live tournament tracker
 
-Once the group stage starts, the app is more than a schedule. Four tabs across the top let you switch between the fixtures and a live, self-updating read on the tournament. All the live data comes straight from ESPN's public soccer feed — the same numbers the scoreboards show — so nothing has to be typed in by hand.
+Once the group stage starts, the app is more than a schedule. Five tabs across the top let you switch between the fixtures and a live, self-updating read on the tournament. All the live data comes straight from ESPN's public soccer feed — the same numbers the scoreboards show — so nothing has to be typed in by hand.
 
 ### 📅 Schedule
 
 The home view: every fixture in order. As games go live, the cards show the **current score and a LIVE marker**; once a match finishes, the **final result** sticks so you can scroll back and see how each day went. Past-day scores are backfilled, so a result that happened while you were away still shows up.
 
+### 🗺️ Bracket
+
+A complete knockout bracket from the **Round of 32 to the Final**, laid out as scrollable rounds with the third-place play-off tucked under the Final. It's **self-resolving**: group winners and runners-up fill into their slots as each group finishes, the eight-best-third-placed slots firm up from ESPN's confirmed fixtures, and winners advance through the rounds automatically as knockout games are played. Nothing is hardcoded — until a slot is decided it shows the placeholder (e.g. "Winner G" or "3rd A/E/H/I/J"), so the bracket is always honest about what's actually known. Tap any tie to open it on ESPN.
+
 ### 📊 Group standings
 
 A live league table for **every group, A through L** — played, won, drawn, lost, goal difference, points — sorted exactly the way FIFA sorts them and refreshed straight from ESPN. It's the at-a-glance answer to "who's top of the group right now?"
 
-### 🇺🇸 USA scenarios
+### 🇺🇸 USA next
 
-The "what does the USA actually need?" tab. It shows the **live Group D table** and then translates the standings into **plain-English qualification paths** — "win and you're through," "a draw still does it unless X happens," and so on. The clever part: it works through *every possible combination* of the other Group D results and the eight-best-third-place math, then writes out the shortest honest version of each outcome — including who a top-2 finish would line the USA up against in the Round of 32.
+The "where do the USA stand, and who's next?" tab. It shows the **live Group D table**, a plain headline on where the USA can still finish (or where they finished), and — the useful part — **who they'd play in the Round of 32**. Because knockout matchups are fixed by bracket position, the side of the draw is known in advance, so the tab names the likely opponent (with whoever currently holds that spot) for a 1st- or 2nd-place finish, and points to the 3rd-place race if that's the only route left.
 
 ### 🥉 3rd-place race
 
@@ -55,8 +60,10 @@ The whole thing was built conversationally — I described what I wanted, and it
 5. **Added live ESPN scores** — match cards started showing live and final results, and link out to the ESPN game page.
 6. **Added the Group standings tab** — a live table for every group.
 7. **Put today's games on top** and tucked earlier days behind a toggle.
-8. **Added the USA scenarios tab** — the live Group D table plus every qualification path in plain English.
-9. **Added the 3rd-place race tracker** and wired it into the USA scenarios.
+8. **Added a USA tab** — the live Group D table plus a clear read on where the USA stand.
+9. **Added the 3rd-place race tracker** and wired it into the USA tab.
+10. **Added the self-resolving knockout bracket** (Round of 32 → Final), filling in live from ESPN.
+11. **Refocused the USA tab on "who's next"** — where the USA finished and who they'd meet in the Round of 32.
 
 Each change was a small request, applied on top of the last — that's why it ended up polished without ever being one big complicated task.
 
@@ -69,4 +76,4 @@ Each change was a small request, applied on top of the last — that's why it en
 
 ## TL;DR
 
-It's a free, shareable, single-page World Cup 2026 app: the full schedule with search, filters, a countdown, and team links — all in Mountain Time — plus four live tabs once play begins (schedule scores, group standings, USA qualification scenarios, and the best-third-place race), all updating straight from ESPN. Built piece by piece in a chat, and it lives at the link up top. 🌎⚽
+It's a free, shareable, single-page World Cup 2026 app: the full schedule with search, filters, a countdown, and team links — all in Mountain Time — plus five live tabs once play begins (schedule scores, a self-resolving knockout bracket, group standings, the USA's road and next opponent, and the best-third-place race), all updating straight from ESPN. Built piece by piece in a chat, and it lives at the link up top. 🌎⚽
