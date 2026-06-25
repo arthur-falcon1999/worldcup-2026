@@ -435,8 +435,11 @@ function espnUrl(m,live){
 function sideHtml(side,ourName){const t=ourName||side.our;return t?teamHtml(t):side.name;}
 function teamsLine(m,live){
   if(!live||live.state==="pre"){
-    return m.b?`${teamHtml(m.a)}<span class="vs">vs</span>${teamHtml(m.b)}`
-              :`<span style="color:var(--muted)">${m.a}</span>`;
+    if(!m.b) return `<span style="color:var(--muted)">${m.a}</span>`;
+    // Knockout slots resolve through SEED/standings; group fixtures are real teams already.
+    const ta=isKO(m.s)?koTeamHtml(m.a):teamHtml(m.a);
+    const tb=isKO(m.s)?koTeamHtml(m.b):teamHtml(m.b);
+    return `${ta}<span class="vs">vs</span>${tb}`;
   }
   const ca=canonTeam(m.a),cb=canonTeam(m.b);
   const byOur={};
@@ -660,9 +663,28 @@ function renderThirds(){
 }
 
 // ---- Knockout bracket (self-resolving from live standings + ESPN) ----
-// We never hardcode results. Group winners/runners-up resolve from the live group
-// tables once a group finishes; knockout winners propagate as ESPN reports them;
-// 3rd-place slots fill in from ESPN's real fixture once FIFA's allocation is set.
+// Group winners/runners-up resolve from the live ESPN group tables once a group
+// finishes; knockout winners propagate as ESPN reports them; 3rd-place combo slots
+// fill in from ESPN's real fixture once FIFA's allocation is set. Where the live
+// feed hasn't caught up yet, we fall back to SEED — confirmed results entered by
+// hand — so finished groups show their real teams immediately. Live data, when
+// present, always wins; update SEED as more groups finish.
+const SEED={
+  A:{w:"Mexico",       r:"South Africa",            t:"South Korea"},
+  B:{w:"Switzerland",  r:"Canada",                  t:"Bosnia and Herzegovina"},
+  C:{w:"Brazil",       r:"Morocco",                 t:"Scotland"},
+  D:{w:"USA"},
+  E:{w:"Germany"},
+  I:{w:"France",                                    t:"Norway"},
+  J:{w:"Argentina"},
+  K:{w:"Colombia"}
+};
+function seedSide(letter,pos){
+  const g=SEED[letter];if(!g)return null;
+  const nm=pos===1?g.w:pos===2?g.r:g.t;
+  if(!nm)return null;
+  return {name:nm,our:canonTeam(nm)||nm};
+}
 const brDayFmt=new Intl.DateTimeFormat("en-US",{timeZone:TZ,month:"short",day:"numeric"});
 const SHORTNM={"Bosnia and Herzegovina":"Bosnia & H.","South Africa":"S. Africa",
   "South Korea":"S. Korea","New Zealand":"N. Zealand","Saudi Arabia":"Saudi Arabia"};
@@ -678,12 +700,25 @@ function groupDone(letter){
   const r=groupEntries(letter);
   return !!(r&&r.length>=4&&r.every(e=>statN(e,"gamesPlayed")>=3));
 }
-// Winner (pos 1) / runner-up (pos 2) of a group — only once the group has finished.
+// Winner (pos 1) / runner-up (pos 2) of a group: live ESPN once the group finishes,
+// otherwise the confirmed SEED result if we have one.
 function groupSide(letter,pos){
-  if(!groupDone(letter))return null;
-  const r=groupEntries(letter),e=r&&r[pos-1];
-  if(!e)return null;
-  const nm=e.team.displayName;return {name:nm,our:canonTeam(nm)};
+  if(groupDone(letter)){
+    const r=groupEntries(letter),e=r&&r[pos-1];
+    if(e){const nm=e.team.displayName;return {name:nm,our:canonTeam(nm)};}
+  }
+  return seedSide(letter,pos);
+}
+// Token (e.g. "Winner C", "Runner-up A") → real team name where known, else null.
+function slotName(tok){
+  let m=/^Winner ([A-Z])$/.exec(tok);   if(m){const s=groupSide(m[1],1);return s&&(s.our||s.name);}
+  m=/^Runner-up ([A-Z])$/.exec(tok);    if(m){const s=groupSide(m[1],2);return s&&(s.our||s.name);}
+  return null;
+}
+// A knockout slot for the schedule: flagged/linked team if known, else the placeholder.
+function koTeamHtml(tok){
+  const nm=slotName(tok);
+  return nm?teamHtml(nm):`<span style="color:var(--muted)">${tok}</span>`;
 }
 // Winner & loser of a finished knockout match (via ESPN, matched on kickoff time).
 function koOutcome(n){
@@ -836,10 +871,12 @@ function renderUSA(){
   const allRem=g.remaining;
   const done=!allRem.length;
   // Live position of a team in any group (1=winner, 2=runner-up, 3=third) → linked name.
+  // Falls back to the confirmed SEED result when the live feed hasn't caught up.
   function teamAt(letter,pos){
-    const r=groupEntries(letter);if(!r||!r[pos-1])return null;
-    const nm=r[pos-1].team.displayName,our=canonTeam(nm);
-    return our?standTeam(our):nm;
+    const r=groupEntries(letter);
+    if(r&&r[pos-1]){const nm=r[pos-1].team.displayName,our=canonTeam(nm);return our?standTeam(our):nm;}
+    const s=seedSide(letter,pos);
+    return s?(s.our&&FLAGS[s.our]?standTeam(s.our):s.name):null;
   }
   // USA's best- and worst-possible finish (points only) over every remaining group result.
   function band(){
