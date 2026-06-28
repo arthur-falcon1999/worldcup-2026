@@ -446,8 +446,8 @@ function teamsLine(m,live){
   if(!live||live.state==="pre"){
     if(!m.b) return `<span style="color:var(--muted)">${m.a}</span>`;
     // Knockout slots resolve through SEED/standings; group fixtures are real teams already.
-    const ta=isKO(m.s)?koTeamHtml(m.a):teamHtml(m.a);
-    const tb=isKO(m.s)?koTeamHtml(m.b):teamHtml(m.b);
+    const ta=isKO(m.s)?koTeamHtml(m.a,m):teamHtml(m.a);
+    const tb=isKO(m.s)?koTeamHtml(m.b,m):teamHtml(m.b);
     return `${ta}<span class="vs">vs</span>${tb}`;
   }
   const ca=canonTeam(m.a),cb=canonTeam(m.b);
@@ -737,8 +737,10 @@ function slotName(tok){
   return null;
 }
 // A knockout slot for the schedule: flagged/linked team if known, else the placeholder.
-function koTeamHtml(tok){
-  const nm=slotName(tok);
+// `m` lets us resolve the "3rd …" combo slots via FIFA's allocation (THIRD).
+function koTeamHtml(tok,m){
+  let nm=slotName(tok);
+  if(!nm&&m){const s=thirdSide(m,tok);if(s)nm=s.our||s.name;}
   return nm?teamHtml(nm):`<span style="color:var(--muted)">${tok}</span>`;
 }
 // Winner & loser of a finished knockout match (via ESPN, matched on kickoff time).
