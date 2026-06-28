@@ -67,6 +67,7 @@
   .lname{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .stand td.ld-team,.stand th.ld-team{text-align:left}
   .leadnote{color:var(--muted);font-size:13px;max-width:920px;margin:6px auto 0;padding:0 16px;line-height:1.5}
+  .aggwait{color:var(--accent2)}
   .usanote{color:var(--muted);font-size:13px;line-height:1.55;margin:2px 0 4px}
   .headcard{background:var(--panel2);border:1px solid var(--line);border-radius:14px;
     padding:14px 16px;margin-top:14px;font-size:15px;line-height:1.55}
@@ -469,7 +470,7 @@ async function fetchLive(){
   for(const d of days){
     try{const r=await fetch(base+d);if(!r.ok)continue;const j=await r.json();ok=true;buildLive(j.events,fresh);}catch(e){}
   }
-  if(ok){LIVE=fresh;stampLive();render();if(view==="usa")renderUSA();if(view==="bracket")renderBracket();}
+  if(ok){LIVE=fresh;stampLive();render();if(view==="usa")renderUSA();if(view==="bracket")renderBracket();if(view==="leaders")aggregateStats();}
 }
 // One-time backfill: fetch scores for every tournament day already finished
 // (older than the live window), so past results show up — not just recent games.
@@ -482,7 +483,7 @@ async function fetchPast(){
   }
   if(PAST.size){
     for(const [k,v] of PAST){if(!LIVE.has(k))LIVE.set(k,v);}   // fold into current view and repaint
-    render();if(view==="usa")renderUSA();if(view==="bracket")renderBracket();
+    render();if(view==="usa")renderUSA();if(view==="bracket")renderBracket();if(view==="leaders")aggregateStats();
   }
 }
 function stampLive(){
@@ -985,7 +986,10 @@ function renderUSA(){
   host.innerHTML=h;
 }
 
-// ---- Tournament leaders (ESPN statistics API: goals & assists) ----
+// ---- Tournament leaders ----
+// Goals & assists come from ESPN's instant statistics feed. Goalkeepers (clean
+// sheets / saves), discipline (cards) and shots on target aren't in any aggregate
+// feed, so we tally them ourselves from each finished match's player rosters.
 let LEADERS=null, leadersErr="";
 function athStat(a,name){const s=(a.statistics||[]).find(x=>x.name===name);return s?s.displayValue:"–";}
 async function fetchLeaders(){
@@ -997,44 +1001,111 @@ async function fetchLeaders(){
     else if(!LEADERS){leadersErr="No tournament leader data yet — it fills in as games are played.";}
   }catch(e){ if(!LEADERS) leadersErr="Couldn't load tournament leaders right now — try again shortly."; }
   if(view==="leaders") renderLeaders();
+  aggregateStats();   // kick off / refresh the roster-derived categories
+}
+
+// ---- Roster aggregation for keeper/discipline/shooting leaders ----
+let AGG=null;                 // Map: athleteId -> {name,team,pos,isGK,APP,G,A,SOG,YC,RC,SV,CS}
+let aggState="idle";          // idle | loading | ready | error
+let aggCount=0;               // number of finished games last folded into AGG
+let aggProg={done:0,total:0};
+function completedEventIds(){
+  const seen=new Set(),ids=[];
+  for(const v of LIVE.values()){
+    if(v&&v.state==="post"&&v.id&&!seen.has(v.id)){seen.add(v.id);ids.push(v.id);}
+  }
+  return ids;
+}
+function pStat(p,name){const s=(p.stats||[]).find(x=>x.name===name);return s?(+s.value||0):0;}
+async function aggregateStats(force){
+  if(aggState==="loading")return;
+  const ids=completedEventIds();
+  if(!ids.length)return;
+  if(aggState==="ready"&&!force&&ids.length===aggCount)return;   // nothing new since last tally
+  aggState="loading";aggProg={done:0,total:ids.length};
+  const acc=new Map();
+  const base="https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary?event=";
+  let i=0;
+  async function worker(){
+    while(i<ids.length){
+      const eid=ids[i++];
+      try{
+        const r=await fetch(base+eid);if(!r.ok)throw 0;
+        const j=await r.json();
+        for(const block of (j.rosters||[])){
+          const team=(block.team&&block.team.displayName)||"";
+          for(const pl of (block.roster||[])){
+            const ath=pl.athlete||{};const id=ath.id||ath.displayName;if(!id)continue;
+            const app=pStat(pl,"appearances");if(app<=0)continue;   // didn't feature
+            const pos=(pl.position&&pl.position.abbreviation)||"";
+            let e=acc.get(id);
+            if(!e){e={name:ath.displayName||"—",team,pos,isGK:false,APP:0,G:0,A:0,SOG:0,YC:0,RC:0,SV:0,CS:0};acc.set(id,e);}
+            e.APP+=app;e.G+=pStat(pl,"totalGoals");e.A+=pStat(pl,"goalAssists");
+            e.SOG+=pStat(pl,"shotsOnTarget");e.YC+=pStat(pl,"yellowCards");
+            e.RC+=pStat(pl,"redCards");e.SV+=pStat(pl,"saves");
+            if(pos==="G"){e.isGK=true;if(pStat(pl,"goalsConceded")===0)e.CS++;}   // goalkeeper clean sheet
+          }
+        }
+      }catch(err){}
+      aggProg.done++;
+      if(view==="leaders"&&aggProg.done%4===0)renderLeaders();   // progressive repaint
+    }
+  }
+  await Promise.all(Array.from({length:Math.min(8,ids.length)},worker));
+  AGG=acc;aggCount=ids.length;aggState="ready";
+  if(view==="leaders")renderLeaders();
+}
+
+// One leaderboard table. `cols` = [{label,full}], each row supplies vals[] in the same order.
+function leaderTable(title,cols,rows){
+  if(!rows.length)return "";
+  let h=`<div class="grouptbl"><h3>${title}</h3><div class="standwrap">
+    <table class="stand lead"><thead><tr>
+      <th>#</th><th class="tm">Player</th><th class="ld-team">Team</th><th title="Matches played">MP</th>`+
+    cols.map(c=>`<th title="${c.full}">${c.label}</th>`).join("")+`</tr></thead><tbody>`;
+  rows.forEach((r,i)=>{
+    const our=canonTeam(r.team),fl=our?flag(our):"",tl=our||r.team||"—";
+    const head=r.head
+      ? `<img class="lhead" src="${r.head}" alt="" loading="lazy" onerror="this.style.display='none'">`
+      : `<span class="lhead lnoimg">${(r.name||"?").slice(0,1)}</span>`;
+    h+=`<tr${i===0?' class="qual"':''}><td class="pos">${i+1}</td>
+      <td class="tm"><span class="lplayer">${head}<span class="lname">${r.name}</span></span></td>
+      <td class="ld-team">${fl} ${tl}</td><td>${r.mp}</td>`+
+      r.vals.map((v,ci)=>`<td class="${ci===0?'pts':''}">${v}</td>`).join("")+`</tr>`;
+  });
+  return h+`</tbody></table></div></div>`;
+}
+// Rows for goals/assists from the statistics feed.
+function statRows(catKey){
+  const block=LEADERS?LEADERS.find(s=>s.name===catKey):null;
+  if(!block||!block.leaders)return [];
+  return block.leaders.slice(0,15).map(ld=>{const a=ld.athlete||{};
+    return {name:a.displayName||"—",team:(a.team&&a.team.displayName)||"",
+      head:(a.headshot&&a.headshot.href)||"",mp:athStat(a,"appearances"),vals:[Math.round(ld.value||0)]};});
+}
+// Rows from the roster tally, ranked by a scoring function then sliced.
+function aggRows(filter,score,vals){
+  if(!AGG)return [];
+  return [...AGG.values()].filter(filter).sort((a,b)=>score(b)-score(a)||b.APP-a.APP)
+    .slice(0,15).map(e=>({name:e.name,team:e.team,head:"",mp:e.APP,vals:vals(e)}));
 }
 function renderLeaders(){
   const host=document.getElementById("leaders");
-  if(!LEADERS){
+  if(!LEADERS&&aggState!=="ready"){
     host.innerHTML=`<div class="empty">${leadersErr||"Loading tournament leaders…"}</div>`;return;
   }
-  const CATS=[
-    {key:"goalsLeaders",   title:"⚽ Top goal scorers", col:"G"},
-    {key:"assistsLeaders", title:"🅰️ Most assists",     col:"A"},
-  ];
-  let html=`<div class="leadnote">Individual tournament leaders, live from ESPN. <b>MP</b> = matches played. Top 15 shown per category.</div>`;
-  for(const cat of CATS){
-    const block=LEADERS.find(s=>s.name===cat.key);
-    const list=(block&&block.leaders)?block.leaders.slice(0,15):[];
-    if(!list.length)continue;
-    html+=`<div class="grouptbl"><h3>${cat.title}</h3><div class="standwrap">
-      <table class="stand lead"><thead><tr>
-        <th>#</th><th class="tm">Player</th><th class="ld-team">Team</th><th>MP</th><th>${cat.col}</th>
-      </tr></thead><tbody>`;
-    list.forEach((ld,i)=>{
-      const a=ld.athlete||{};
-      const tname=(a.team&&a.team.displayName)||"";
-      const our=canonTeam(tname);
-      const fl=our?flag(our):"";
-      const teamLabel=our||tname||"—";
-      const head=(a.headshot&&a.headshot.href)
-        ? `<img class="lhead" src="${a.headshot.href}" alt="" loading="lazy" onerror="this.style.display='none'">`
-        : `<span class="lhead lnoimg">${(a.displayName||"?").slice(0,1)}</span>`;
-      const val=Math.round(ld.value||0);
-      html+=`<tr${i===0?' class="qual"':''}>
-        <td class="pos">${i+1}</td>
-        <td class="tm"><span class="lplayer">${head}<span class="lname">${a.displayName||"—"}</span></span></td>
-        <td class="ld-team">${fl} ${teamLabel}</td>
-        <td>${athStat(a,"appearances")}</td>
-        <td class="pts">${val}</td></tr>`;
-    });
-    html+=`</tbody></table></div></div>`;
-  }
+  let html=`<div class="leadnote">Individual tournament leaders, live from ESPN. <b>MP</b> = matches played; top 15 per category.`+
+    (aggState==="loading"?` <span class="aggwait">⏳ Tallying keepers, cards & shots from match data… (${aggProg.done}/${aggProg.total} games)</span>`:``)+`</div>`;
+  html+=leaderTable("⚽ Top goal scorers",[{label:"G",full:"Goals"}],statRows("goalsLeaders"));
+  html+=leaderTable("🅰️ Most assists",[{label:"A",full:"Assists"}],statRows("assistsLeaders"));
+  html+=leaderTable("🎯 Shots on target",[{label:"SOT",full:"Shots on target"},{label:"G",full:"Goals"}],
+    aggRows(e=>e.SOG>0,e=>e.SOG,e=>[e.SOG,e.G]));
+  html+=leaderTable("🧤 Top goalkeepers",[{label:"CS",full:"Clean sheets"},{label:"SV",full:"Saves"}],
+    aggRows(e=>e.isGK,e=>e.CS*100+e.SV,e=>[e.CS,e.SV]));
+  html+=leaderTable("🟨 Discipline (cards)",[{label:"🟨",full:"Yellow cards"},{label:"🟥",full:"Red cards"}],
+    aggRows(e=>e.YC+e.RC>0,e=>e.RC*100+e.YC,e=>[e.YC,e.RC]));
+  if(aggState==="loading"&&!AGG)
+    html+=`<div class="leadnote">🧤 Goalkeepers, 🟨 discipline and 🎯 shots-on-target load from each game's roster — one moment…</div>`;
   host.innerHTML=html;
 }
 
