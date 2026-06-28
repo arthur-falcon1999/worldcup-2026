@@ -60,6 +60,13 @@
   .stand tbody tr.meRow{background:rgba(255,210,74,.12)}
   .stand tr.meRow .pos{color:var(--accent2)}
   .stand tr.qual.meRow{background:rgba(255,210,74,.16)}
+  .stand .lplayer{display:flex;align-items:center;gap:9px;min-width:0}
+  .lhead{width:30px;height:30px;border-radius:50%;object-fit:cover;background:var(--line);flex:none}
+  .lnoimg{display:inline-flex;align-items:center;justify-content:center;font-weight:700;
+    color:var(--muted);font-size:13px}
+  .lname{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .stand td.ld-team,.stand th.ld-team{text-align:left}
+  .leadnote{color:var(--muted);font-size:13px;max-width:920px;margin:6px auto 0;padding:0 16px;line-height:1.5}
   .usanote{color:var(--muted);font-size:13px;line-height:1.55;margin:2px 0 4px}
   .headcard{background:var(--panel2);border:1px solid var(--line);border-radius:14px;
     padding:14px 16px;margin-top:14px;font-size:15px;line-height:1.55}
@@ -177,6 +184,7 @@
       <span class="vtab active" data-v="schedule">📅 Schedule</span>
       <span class="vtab" data-v="bracket">🗺️ Bracket</span>
       <span class="vtab" data-v="standings">📊 Group standings</span>
+      <span class="vtab" data-v="leaders">🏆 Leaders</span>
       <span class="vtab" data-v="thirds">🥉 3rd-place race</span>
     </div>
     <div id="schedctrls">
@@ -219,6 +227,7 @@
 <main id="standings" style="display:none"></main>
 <main id="bracket" style="display:none"></main>
 <main id="usa" style="display:none"></main>
+<main id="leaders" style="display:none"></main>
 <main id="thirds" style="display:none"></main>
 <div class="foot">
   Schedule per official FIFA fixtures. Kickoff times stored in UTC and converted to America/Denver in your browser.<br>
@@ -976,24 +985,77 @@ function renderUSA(){
   host.innerHTML=h;
 }
 
+// ---- Tournament leaders (ESPN statistics API: goals & assists) ----
+let LEADERS=null, leadersErr="";
+function athStat(a,name){const s=(a.statistics||[]).find(x=>x.name===name);return s?s.displayValue:"–";}
+async function fetchLeaders(){
+  try{
+    const r=await fetch("https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/statistics");
+    if(!r.ok)throw 0;
+    const j=await r.json();
+    if(j&&j.stats&&j.stats.length){LEADERS=j.stats;leadersErr="";}
+    else if(!LEADERS){leadersErr="No tournament leader data yet — it fills in as games are played.";}
+  }catch(e){ if(!LEADERS) leadersErr="Couldn't load tournament leaders right now — try again shortly."; }
+  if(view==="leaders") renderLeaders();
+}
+function renderLeaders(){
+  const host=document.getElementById("leaders");
+  if(!LEADERS){
+    host.innerHTML=`<div class="empty">${leadersErr||"Loading tournament leaders…"}</div>`;return;
+  }
+  const CATS=[
+    {key:"goalsLeaders",   title:"⚽ Top goal scorers", col:"G"},
+    {key:"assistsLeaders", title:"🅰️ Most assists",     col:"A"},
+  ];
+  let html=`<div class="leadnote">Individual tournament leaders, live from ESPN. <b>MP</b> = matches played. Top 15 shown per category.</div>`;
+  for(const cat of CATS){
+    const block=LEADERS.find(s=>s.name===cat.key);
+    const list=(block&&block.leaders)?block.leaders.slice(0,15):[];
+    if(!list.length)continue;
+    html+=`<div class="grouptbl"><h3>${cat.title}</h3><div class="standwrap">
+      <table class="stand lead"><thead><tr>
+        <th>#</th><th class="tm">Player</th><th class="ld-team">Team</th><th>MP</th><th>${cat.col}</th>
+      </tr></thead><tbody>`;
+    list.forEach((ld,i)=>{
+      const a=ld.athlete||{};
+      const tname=(a.team&&a.team.displayName)||"";
+      const our=canonTeam(tname);
+      const fl=our?flag(our):"";
+      const teamLabel=our||tname||"—";
+      const head=(a.headshot&&a.headshot.href)
+        ? `<img class="lhead" src="${a.headshot.href}" alt="" loading="lazy" onerror="this.style.display='none'">`
+        : `<span class="lhead lnoimg">${(a.displayName||"?").slice(0,1)}</span>`;
+      const val=Math.round(ld.value||0);
+      html+=`<tr${i===0?' class="qual"':''}>
+        <td class="pos">${i+1}</td>
+        <td class="tm"><span class="lplayer">${head}<span class="lname">${a.displayName||"—"}</span></span></td>
+        <td class="ld-team">${fl} ${teamLabel}</td>
+        <td>${athStat(a,"appearances")}</td>
+        <td class="pts">${val}</td></tr>`;
+    });
+    html+=`</tbody></table></div></div>`;
+  }
+  host.innerHTML=html;
+}
+
 // ---- View switching: Schedule <-> Standings <-> USA ----
 let view="schedule";
 function setView(v){
   view=v;
   document.querySelectorAll(".vtab").forEach(t=>t.classList.toggle("active",t.dataset.v===v));
-  const sched=v==="schedule",bracket=v==="bracket",stand=v==="standings",usa=v==="usa",thirds=v==="thirds";
+  const sched=v==="schedule",bracket=v==="bracket",stand=v==="standings",thirds=v==="thirds",leaders=v==="leaders";
   document.getElementById("schedctrls").style.display=sched?"":"none";
   document.getElementById("count").style.display=sched?"":"none";
   document.getElementById("list").style.display=sched?"":"none";
   document.getElementById("bracket").style.display=bracket?"":"none";
   document.getElementById("standnote").style.display=stand?"":"none";
   document.getElementById("standings").style.display=stand?"":"none";
-  document.getElementById("usa").style.display=usa?"":"none";
+  document.getElementById("leaders").style.display=leaders?"":"none";
   document.getElementById("thirds").style.display=thirds?"":"none";
   if(sched){render();}
   else if(bracket){renderBracket();fetchStandings();}
   else if(stand){renderStandings();fetchStandings();}
-  else if(usa){renderUSA();fetchStandings();}
+  else if(leaders){renderLeaders();fetchLeaders();}
   else{renderThirds();fetchStandings();}
 }
 document.querySelectorAll(".vtab").forEach(t=>t.addEventListener("click",()=>setView(t.dataset.v)));
@@ -1044,6 +1106,7 @@ render();
 fetchPast();
 fetchLive();setInterval(fetchLive,30000);
 fetchStandings();setInterval(()=>{if(view!=="schedule")fetchStandings();},60000);
+setInterval(()=>{if(view==="leaders")fetchLeaders();},60000);
 
 // ---- auto-update: notice when a newer build is deployed, offer a refresh ----
 let _verTag=null;
