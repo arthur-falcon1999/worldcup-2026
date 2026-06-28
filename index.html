@@ -707,6 +707,7 @@ function thirdSide(m,tok){
   const nm=THIRD[m.n];return nm?{name:nm,our:canonTeam(nm)||nm}:null;
 }
 const brDayFmt=new Intl.DateTimeFormat("en-US",{timeZone:TZ,month:"short",day:"numeric"});
+const brWdayFmt=new Intl.DateTimeFormat("en-US",{timeZone:TZ,weekday:"short"});
 const SHORTNM={"Bosnia and Herzegovina":"Bosnia & H.","South Africa":"S. Africa",
   "South Korea":"S. Korea","New Zealand":"N. Zealand","Saudi Arabia":"Saudi Arabia"};
 function shortNm(t){return SHORTNM[t]||t;}
@@ -800,7 +801,7 @@ function brCard(m){
   return `<div class="brcard" data-espn="${espnUrl(m,koLive(m))}" title="Match ${m.n} · open on ESPN ↗">
       ${brRow(s.a,s.la,s.lv,"a")}
       ${brRow(s.b,s.lb,s.lv,"b")}
-      <div class="brmeta">M${m.n} · ${brDayFmt.format(d)} · ${timeFmt.format(d)} MT</div>
+      <div class="brmeta">M${m.n} · ${brDayFmt.format(d)} · ${brWdayFmt.format(d)} ${timeFmt.format(d)} MT</div>
     </div>`;
 }
 function renderBracket(){
