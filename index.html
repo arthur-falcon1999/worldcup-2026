@@ -337,8 +337,8 @@ const M=[
  {n:78,utc:"2026-06-30T17:00:00Z",a:"Runner-up E",b:"Runner-up I",s:"Round of 32",v:"Dallas — AT&T Stadium"},
  {n:79,utc:"2026-07-01T01:00:00Z",a:"Winner A",b:"3rd C/E/F/H/I",s:"Round of 32",v:"Mexico City — Estadio Azteca"},
  {n:80,utc:"2026-07-01T16:00:00Z",a:"Winner L",b:"3rd E/H/I/J/K",s:"Round of 32",v:"Atlanta — Mercedes-Benz Stadium"},
- {n:81,utc:"2026-07-01T20:00:00Z",a:"Winner D",b:"3rd B/E/F/I/J",s:"Round of 32",v:"SF Bay Area — Levi's Stadium"},
- {n:82,utc:"2026-07-02T00:00:00Z",a:"Winner G",b:"3rd A/E/H/I/J",s:"Round of 32",v:"Seattle — Lumen Field"},
+ {n:81,utc:"2026-07-02T00:00:00Z",a:"Winner D",b:"3rd B/E/F/I/J",s:"Round of 32",v:"SF Bay Area — Levi's Stadium"},
+ {n:82,utc:"2026-07-01T20:00:00Z",a:"Winner G",b:"3rd A/E/H/I/J",s:"Round of 32",v:"Seattle — Lumen Field"},
  {n:83,utc:"2026-07-02T23:00:00Z",a:"Runner-up K",b:"Runner-up L",s:"Round of 32",v:"Toronto — BMO Field"},
  {n:84,utc:"2026-07-02T19:00:00Z",a:"Winner H",b:"Runner-up J",s:"Round of 32",v:"Los Angeles — SoFi Stadium"},
  {n:85,utc:"2026-07-03T03:00:00Z",a:"Winner B",b:"3rd E/F/G/I/J",s:"Round of 32",v:"Vancouver — BC Place"},
@@ -698,6 +698,14 @@ function seedSide(letter,pos){
   if(!nm)return null;
   return {name:nm,our:canonTeam(nm)||nm};
 }
+// FIFA's best-3rd allocation, by R32 match number — fills the "3rd …" combo slots
+// before the live feed reaches these (future-dated) fixtures. Live ESPN still wins.
+const THIRD={74:"Paraguay",77:"Sweden",79:"Ecuador",80:"DR Congo",
+  81:"Bosnia and Herzegovina",82:"Senegal",85:"Algeria",87:"Ghana"};
+function thirdSide(m,tok){
+  if(!/^3rd /.test(tok||""))return null;
+  const nm=THIRD[m.n];return nm?{name:nm,our:canonTeam(nm)||nm}:null;
+}
 const brDayFmt=new Intl.DateTimeFormat("en-US",{timeZone:TZ,month:"short",day:"numeric"});
 const SHORTNM={"Bosnia and Herzegovina":"Bosnia & H.","South Africa":"S. Africa",
   "South Korea":"S. Korea","New Zealand":"N. Zealand","Saudi Arabia":"Saudi Arabia"};
@@ -756,7 +764,7 @@ function bracketSides(m){
   if(espnReal)
     return {a:{name:lv.home.name,our:lv.home.our},b:{name:lv.away.name,our:lv.away.our},
             lv,la:m.a||"",lb:m.b||""};
-  if(m.b)return {a:resolveToken(m.a),b:resolveToken(m.b),lv:null,la:m.a,lb:m.b};
+  if(m.b)return {a:resolveToken(m.a)||thirdSide(m,m.a),b:resolveToken(m.b)||thirdSide(m,m.b),lv:null,la:m.a,lb:m.b};
   let w=/^Winners (\d+) v (\d+)$/.exec(m.a);
   if(w){const o1=koOutcome(+w[1]),o2=koOutcome(+w[2]);
     return {a:o1&&o1.winner||null,b:o2&&o2.winner||null,lv:null,
@@ -790,7 +798,7 @@ function brCard(m){
   return `<div class="brcard" data-espn="${espnUrl(m,koLive(m))}" title="Match ${m.n} · open on ESPN ↗">
       ${brRow(s.a,s.la,s.lv,"a")}
       ${brRow(s.b,s.lb,s.lv,"b")}
-      <div class="brmeta">M${m.n} · ${brDayFmt.format(d)}</div>
+      <div class="brmeta">M${m.n} · ${brDayFmt.format(d)} · ${timeFmt.format(d)} MT</div>
     </div>`;
 }
 function renderBracket(){
