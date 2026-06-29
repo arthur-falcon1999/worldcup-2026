@@ -1081,14 +1081,14 @@ function renderUSA(){
 // Goals & assists come from ESPN's instant statistics feed. Goalkeepers (clean
 // sheets / saves), discipline (cards) and shots on target aren't in any aggregate
 // feed, so we tally them ourselves from each finished match's player rosters.
-let LEADERS=null, leadersErr="";
+let LEADERS=null, leadersErr="", leadersStamp=0;
 function athStat(a,name){const s=(a.statistics||[]).find(x=>x.name===name);return s?s.displayValue:"–";}
 async function fetchLeaders(){
   try{
     const r=await fetch("https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/statistics");
     if(!r.ok)throw 0;
     const j=await r.json();
-    if(j&&j.stats&&j.stats.length){LEADERS=j.stats;leadersErr="";}
+    if(j&&j.stats&&j.stats.length){LEADERS=j.stats;leadersErr="";leadersStamp=Date.now();}
     else if(!LEADERS){leadersErr="No tournament leader data yet — it fills in as games are played.";}
   }catch(e){ if(!LEADERS) leadersErr="Couldn't load tournament leaders right now — try again shortly."; }
   if(view==="leaders") renderLeaders();
@@ -1096,54 +1096,85 @@ async function fetchLeaders(){
 }
 
 // ---- Roster aggregation for keeper/discipline/shooting leaders ----
+// Goals/assists come from ESPN's instant feed; these three categories are tallied
+// from each game's player roster. Finished games are cached (fetched once); games
+// still in progress are re-pulled every cycle so saves, cards & shots move in real
+// time. Clean sheets only count once a game is final.
 let AGG=null;                 // Map: athleteId -> {name,team,pos,isGK,APP,G,A,SOG,YC,RC,SV,CS}
 let aggState="idle";          // idle | loading | ready | error
-let aggCount=0;               // number of finished games last folded into AGG
+let aggSig="";                // signature of the games last folded in (id + final flags)
 let aggProg={done:0,total:0};
-function completedEventIds(){
-  const seen=new Set(),ids=[];
+const GAME_TALLY=new Map();    // eventId -> {final, players:Map(athleteId -> per-game tally)}
+// Finished (post) and in-progress (in) games, each tagged with whether it's final.
+function relevantEvents(){
+  const seen=new Map();
   for(const v of LIVE.values()){
-    if(v&&v.state==="post"&&v.id&&!seen.has(v.id)){seen.add(v.id);ids.push(v.id);}
+    if(!v||!v.id)continue;
+    if(v.state==="post")seen.set(v.id,true);
+    else if(v.state==="in"&&!seen.has(v.id))seen.set(v.id,false);
   }
-  return ids;
+  return [...seen.entries()].map(([id,final])=>({id,final}));
 }
 function pStat(p,name){const s=(p.stats||[]).find(x=>x.name===name);return s?(+s.value||0):0;}
+// Per-game roster tally for one event. Clean sheets only when the game is final.
+function tallyGame(j,final){
+  const players=new Map();
+  for(const block of (j.rosters||[])){
+    const team=(block.team&&block.team.displayName)||"";
+    for(const pl of (block.roster||[])){
+      const ath=pl.athlete||{};const id=ath.id||ath.displayName;if(!id)continue;
+      const app=pStat(pl,"appearances");if(app<=0)continue;   // didn't feature
+      const pos=(pl.position&&pl.position.abbreviation)||"";
+      players.set(id,{name:ath.displayName||"—",team,pos,isGK:pos==="G",
+        APP:app,G:pStat(pl,"totalGoals"),A:pStat(pl,"goalAssists"),
+        SOG:pStat(pl,"shotsOnTarget"),YC:pStat(pl,"yellowCards"),
+        RC:pStat(pl,"redCards"),SV:pStat(pl,"saves"),
+        CS:(final&&pos==="G"&&pStat(pl,"goalsConceded")===0)?1:0});
+    }
+  }
+  return players;
+}
+// Sum every relevant game's per-game tally into the AGG leaderboard map.
+function combineAgg(evs){
+  const acc=new Map();
+  for(const {id} of evs){
+    const g=GAME_TALLY.get(id);if(!g)continue;
+    for(const [pid,e] of g.players){
+      let a=acc.get(pid);
+      if(!a){a={name:e.name,team:e.team,pos:e.pos,isGK:e.isGK,APP:0,G:0,A:0,SOG:0,YC:0,RC:0,SV:0,CS:0};acc.set(pid,a);}
+      a.isGK=a.isGK||e.isGK;
+      a.APP+=e.APP;a.G+=e.G;a.A+=e.A;a.SOG+=e.SOG;a.YC+=e.YC;a.RC+=e.RC;a.SV+=e.SV;a.CS+=e.CS;
+    }
+  }
+  AGG=acc;
+}
 async function aggregateStats(force){
   if(aggState==="loading")return;
-  const ids=completedEventIds();
-  if(!ids.length)return;
-  if(aggState==="ready"&&!force&&ids.length===aggCount)return;   // nothing new since last tally
-  aggState="loading";aggProg={done:0,total:ids.length};
-  const acc=new Map();
+  const evs=relevantEvents();
+  if(!evs.length)return;
+  const sig=evs.map(e=>e.id+(e.final?"F":"L")).sort().join(",");
+  const hasLive=evs.some(e=>!e.final);
+  // Skip only when nothing changed AND no live game is running (live games change every poll).
+  if(aggState==="ready"&&!force&&sig===aggSig&&!hasLive)return;
+  // Reuse cached finished games; (re)fetch anything not cached as final — i.e. live games each cycle.
+  const need=evs.filter(e=>{const c=GAME_TALLY.get(e.id);return !c||!c.final;});
+  aggState="loading";aggProg={done:0,total:need.length};
   const base="https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary?event=";
   let i=0;
   async function worker(){
-    while(i<ids.length){
-      const eid=ids[i++];
+    while(i<need.length){
+      const e=need[i++];
       try{
-        const r=await fetch(base+eid);if(!r.ok)throw 0;
+        const r=await fetch(base+e.id);if(!r.ok)throw 0;
         const j=await r.json();
-        for(const block of (j.rosters||[])){
-          const team=(block.team&&block.team.displayName)||"";
-          for(const pl of (block.roster||[])){
-            const ath=pl.athlete||{};const id=ath.id||ath.displayName;if(!id)continue;
-            const app=pStat(pl,"appearances");if(app<=0)continue;   // didn't feature
-            const pos=(pl.position&&pl.position.abbreviation)||"";
-            let e=acc.get(id);
-            if(!e){e={name:ath.displayName||"—",team,pos,isGK:false,APP:0,G:0,A:0,SOG:0,YC:0,RC:0,SV:0,CS:0};acc.set(id,e);}
-            e.APP+=app;e.G+=pStat(pl,"totalGoals");e.A+=pStat(pl,"goalAssists");
-            e.SOG+=pStat(pl,"shotsOnTarget");e.YC+=pStat(pl,"yellowCards");
-            e.RC+=pStat(pl,"redCards");e.SV+=pStat(pl,"saves");
-            if(pos==="G"){e.isGK=true;if(pStat(pl,"goalsConceded")===0)e.CS++;}   // goalkeeper clean sheet
-          }
-        }
+        GAME_TALLY.set(e.id,{final:e.final,players:tallyGame(j,e.final)});
       }catch(err){}
       aggProg.done++;
-      if(view==="leaders"&&aggProg.done%4===0)renderLeaders();   // progressive repaint
+      if(view==="leaders"&&aggProg.done%4===0){combineAgg(evs);renderLeaders();}   // progressive repaint
     }
   }
-  await Promise.all(Array.from({length:Math.min(8,ids.length)},worker));
-  AGG=acc;aggCount=ids.length;aggState="ready";
+  await Promise.all(Array.from({length:Math.min(8,need.length||1)},worker));
+  combineAgg(evs);aggSig=sig;aggState="ready";leadersStamp=Date.now();
   if(view==="leaders")renderLeaders();
 }
 
@@ -1185,7 +1216,8 @@ function renderLeaders(){
   if(!LEADERS&&aggState!=="ready"){
     host.innerHTML=`<div class="empty">${leadersErr||"Loading tournament leaders…"}</div>`;return;
   }
-  let html=`<div class="leadnote">Individual tournament leaders, live from ESPN. <b>MP</b> = matches played; top 15 per category.`+
+  const stamp=leadersStamp?` · updated ${timeFmt.format(new Date(leadersStamp))} MT`:``;
+  let html=`<div class="leadnote">Individual tournament leaders, live from ESPN — refreshes automatically${stamp}. <b>MP</b> = matches played; top 15 per category.`+
     (aggState==="loading"?` <span class="aggwait">⏳ Tallying keepers, cards & shots from match data… (${aggProg.done}/${aggProg.total} games)</span>`:``)+`</div>`;
   html+=leaderTable("⚽ Top goal scorers",[{label:"G",full:"Goals"}],statRows("goalsLeaders"));
   html+=leaderTable("🅰️ Most assists",[{label:"A",full:"Assists"}],statRows("assistsLeaders"));
@@ -1268,7 +1300,7 @@ render();
 fetchPast();
 fetchLive();setInterval(fetchLive,30000);
 fetchStandings();setInterval(()=>{if(view!=="schedule")fetchStandings();},60000);
-setInterval(()=>{if(view==="leaders")fetchLeaders();},60000);
+setInterval(()=>{if(view==="leaders")fetchLeaders();},30000);
 
 // ---- auto-update: notice when a newer build is deployed, offer a refresh ----
 let _verTag=null;
