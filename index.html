@@ -103,6 +103,11 @@
   .brteam .brn{overflow:hidden;text-overflow:ellipsis}
   .brteam .flag{font-size:15px;margin-right:0}
   .brph{color:var(--muted);font-style:italic;font-size:11.5px}
+  .brteam.brfeed{flex-wrap:wrap;white-space:normal;font-size:12px;gap:3px;align-items:center}
+  .brteam.brfeed .flag{font-size:13px}
+  .brteam .koor{color:var(--muted);font-weight:400;font-size:9px;text-transform:uppercase;
+    letter-spacing:.05em;margin:0 1px}
+  .brfeedlbl{color:var(--accent2);font-weight:700}
   .brsc{margin-left:auto;font-weight:800;padding-left:8px;color:var(--text)}
   .brsc.brwin{color:var(--accent)}
   .brteam.brwon .brn{font-weight:700}
@@ -830,12 +835,39 @@ function brRow(side,label,lv,homeAway){
   }
   return `<div class="${cls}">${nameHtml}${sc}</div>`;
 }
+// One bracket row for the still-undecided winner of R32 match n: the two teams
+// contesting that tie ("Germany or Paraguay"), resolved via SEED/THIRD/live ESPN.
+function brFeederRow(n){
+  const s=bracketSides(matchByNum(n));
+  const mini=(side,label)=>{
+    if(side&&side.our&&FLAGS[side.our])return `${flag(side.our)}<span class="brn">${shortNm(side.our)}</span>`;
+    if(side&&side.name)return `${flag(side.our||"")}<span class="brn">${shortNm(side.name)}</span>`;
+    return `<span class="brn brph">${label||"TBD"}</span>`;
+  };
+  return `<div class="brteam brfeed">${mini(s.a,s.la)}<span class="koor">or</span>${mini(s.b,s.lb)}</div>`;
+}
+// A Round-of-16 side fed by R32 match n: the decided winner once it's played,
+// else both teams that could come through ("A or B").
+function brKoRow(n){
+  const out=koOutcome(n);
+  if(out&&out.winner)return brRow(out.winner,"Winner M"+n,null,null);
+  return brFeederRow(n);
+}
 function brCard(m){
-  const s=bracketSides(m),d=new Date(m.utc);
-  return `<div class="brcard" data-espn="${espnUrl(m,koLive(m))}" title="Match ${m.n} · open on ESPN ↗">
-      ${brRow(s.a,s.la,s.lv,"a")}
-      ${brRow(s.b,s.lb,s.lv,"b")}
-      <div class="brmeta">M${m.n} · ${brDayFmt.format(d)} · ${brWdayFmt.format(d)} ${timeFmt.format(d)} MT</div>
+  const d=new Date(m.utc),w=/^Winners (\d+) v (\d+)$/.exec(m.a||"");
+  const lv=koLive(m),r16=m.s==="Round of 16"&&!!w;
+  const r16live=lv&&(lv.state==="in"||lv.state==="post");
+  let rows;
+  if(r16&&!r16live){                       // before kickoff: show the four feeder teams
+    rows=brKoRow(+w[1])+brKoRow(+w[2]);
+  }else{                                    // R16 underway → ESPN's real teams+score; other rounds unchanged
+    const s=bracketSides(m);
+    rows=brRow(s.a,s.la,s.lv,"a")+brRow(s.b,s.lb,s.lv,"b");
+  }
+  const meta=r16?`M${m.n} · <span class="brfeedlbl">M${w[1]}+M${w[2]} winners</span>`:`M${m.n}`;
+  return `<div class="brcard" data-espn="${espnUrl(m,lv)}" title="Match ${m.n} · open on ESPN ↗">
+      ${rows}
+      <div class="brmeta">${meta} · ${brDayFmt.format(d)} · ${brWdayFmt.format(d)} ${timeFmt.format(d)} MT</div>
     </div>`;
 }
 function renderBracket(){
