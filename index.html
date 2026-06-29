@@ -539,7 +539,9 @@ function matchCard(m){
 let showPast=false;   // whether the collapsed "previous games" section is expanded
 function render(){
   const list=document.getElementById("list");
-  const filtered=M.filter(matchPasses);
+  // Sort by kickoff so every day — and every game within a day — is chronological.
+  // (Knockout fixtures are stored by bracket number, which isn't time order.)
+  const filtered=M.filter(matchPasses).sort((a,b)=>Date.parse(a.utc)-Date.parse(b.utc));
   document.getElementById("count").textContent=
     `${filtered.length} match${filtered.length===1?"":"es"}`+(query?` matching “${query}”`:"");
   if(!filtered.length){
