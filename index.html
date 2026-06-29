@@ -94,6 +94,7 @@
   .brcols{display:flex;gap:12px;min-width:max-content;align-items:stretch}
   .brcol{display:flex;flex-direction:column;min-width:160px}
   .brhdr{font-size:12px;font-weight:700;color:var(--accent2);text-align:center;padding:6px 0 8px}
+  /* space-around centers each round's ties at the midpoints of their feeders. */
   .brcards{display:flex;flex-direction:column;justify-content:space-around;flex:1;gap:8px}
   .brcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;
     padding:5px 8px;cursor:pointer}
@@ -113,8 +114,8 @@
   .brteam.brwon .brn{font-weight:700}
   .brteam.brusa .brn{color:var(--accent2);font-weight:700}
   .brmeta{font-size:10px;color:var(--muted);margin-top:3px;text-align:right}
-  .br3rd{margin-top:20px;border-top:1px dashed var(--line);padding-top:12px}
-  .br3lbl{font-size:11px;color:var(--muted);text-align:center;margin-bottom:7px}
+  .br3rd{margin:18px auto 0;max-width:280px;border-top:1px dashed var(--line);padding-top:14px}
+  .br3lbl{font-size:12px;color:var(--accent2);font-weight:700;text-align:center;margin-bottom:8px}
   main{max-width:920px;margin:0 auto;padding:8px 16px 60px}
   .prevtoggle{display:flex;align-items:center;gap:9px;cursor:pointer;user-select:none;
     background:var(--panel);border:1px solid var(--line);border-radius:12px;
@@ -890,15 +891,15 @@ function renderBracket(){
   let cols="";
   rounds.forEach(([stage,hdr])=>{
     const nums=order[stage]||M.filter(m=>m.s===stage).map(m=>m.n);
-    let cards=nums.map(n=>brCard(matchByNum(n))).join("");
-    if(stage==="Final"){
-      const tp=M.find(m=>m.s==="Third-place");
-      if(tp)cards+=`<div class="br3rd"><div class="br3lbl">🥉 Third-place play-off</div>${brCard(tp)}</div>`;
-    }
+    const cards=nums.map(n=>brCard(matchByNum(n))).join("");
     cols+=`<div class="brcol"><div class="brhdr">${hdr}</div><div class="brcards">${cards}</div></div>`;
   });
+  // Third-place play-off is a side event — render it on its own below the bracket,
+  // so it doesn't knock the Final off-centre from the two semi-finals.
+  const tp=M.find(m=>m.s==="Third-place");
+  const tp3=tp?`<div class="br3rd"><div class="br3lbl">🥉 Third-place play-off</div>${brCard(tp)}</div>`:"";
   const note=`<div class="usanote">Top 2 of every group plus the <b>8 best 3rd-placed teams</b> reach the Round of 32. Group winners and runners-up fill in as each group finishes; the 3rd-place slots (e.g. “3rd A/E/H/I/J”) resolve to a real team once FIFA’s allocation is set, and the whole bracket updates live from ESPN as knockout fixtures are confirmed. Scroll sideways to follow the path to the Final — tap any tie to open it on ESPN.</div>`;
-  host.innerHTML=note+`<div class="brwrap"><div class="brcols">${cols}</div></div>`;
+  host.innerHTML=note+`<div class="brwrap"><div class="brcols">${cols}</div></div>`+tp3;
 }
 
 // ---- USA — who's next (replaces the old scenario enumerator) ----
