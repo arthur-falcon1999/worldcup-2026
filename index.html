@@ -870,13 +870,27 @@ function brCard(m){
       <div class="brmeta">${meta} · ${brDayFmt.format(d)} · ${brWdayFmt.format(d)} ${timeFmt.format(d)} MT</div>
     </div>`;
 }
+// The two matches feeding a knockout tie ("Winners X v Y") → [X,Y], else null.
+function feedersOf(m){const w=/^Winners (\d+) v (\d+)$/.exec(m.a||"");return w?[+w[1],+w[2]]:null;}
+// Bracket-tree order per round: walk down from the Final so each tie's two feeders
+// sit adjacent and just to its left (true bracket layout, not match-number order).
+function bracketOrder(){
+  const order={};
+  const visit=n=>{const m=matchByNum(n);if(!m)return;
+    (order[m.s]=order[m.s]||[]).push(n);
+    const f=feedersOf(m);if(f)f.forEach(visit);};
+  visit(104);
+  return order;
+}
 function renderBracket(){
   const host=document.getElementById("bracket");
   const rounds=[["Round of 32","Round of 32"],["Round of 16","Round of 16"],
     ["Quarter-final","Quarter-finals"],["Semi-final","Semi-finals"],["Final","Final"]];
+  const order=bracketOrder();
   let cols="";
   rounds.forEach(([stage,hdr])=>{
-    let cards=M.filter(m=>m.s===stage).map(brCard).join("");
+    const nums=order[stage]||M.filter(m=>m.s===stage).map(m=>m.n);
+    let cards=nums.map(n=>brCard(matchByNum(n))).join("");
     if(stage==="Final"){
       const tp=M.find(m=>m.s==="Third-place");
       if(tp)cards+=`<div class="br3rd"><div class="br3lbl">🥉 Third-place play-off</div>${brCard(tp)}</div>`;
