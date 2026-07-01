@@ -354,7 +354,7 @@ const M=[
  {n:76,utc:"2026-06-29T17:00:00Z",a:"Winner C",b:"Runner-up F",s:"Round of 32",v:"Houston — NRG Stadium"},
  {n:77,utc:"2026-06-30T21:00:00Z",a:"Winner I",b:"3rd C/D/F/G/H",s:"Round of 32",v:"New York/NJ — MetLife Stadium"},
  {n:78,utc:"2026-06-30T17:00:00Z",a:"Runner-up E",b:"Runner-up I",s:"Round of 32",v:"Dallas — AT&T Stadium"},
- {n:79,utc:"2026-07-01T01:00:00Z",a:"Winner A",b:"3rd C/E/F/H/I",s:"Round of 32",v:"Mexico City — Estadio Azteca"},
+ {n:79,utc:"2026-07-01T02:00:00Z",a:"Winner A",b:"3rd C/E/F/H/I",s:"Round of 32",v:"Mexico City — Estadio Azteca"},
  {n:80,utc:"2026-07-01T16:00:00Z",a:"Winner L",b:"3rd E/H/I/J/K",s:"Round of 32",v:"Atlanta — Mercedes-Benz Stadium"},
  {n:81,utc:"2026-07-02T00:00:00Z",a:"Winner D",b:"3rd B/E/F/I/J",s:"Round of 32",v:"SF Bay Area — Levi's Stadium"},
  {n:82,utc:"2026-07-01T20:00:00Z",a:"Winner G",b:"3rd A/E/H/I/J",s:"Round of 32",v:"Seattle — Lumen Field"},
@@ -451,6 +451,7 @@ function liveFor(m){
   const ca=canonTeam(m.a),cb=canonTeam(m.b);
   if(ca&&cb){const k="p|"+[ca,cb].sort().join("~");if(LIVE.has(k))return LIVE.get(k);}
   const k2="t|"+Date.parse(m.utc);if(LIVE.has(k2))return LIVE.get(k2);
+  const kp=koPair(m);if(kp&&LIVE.has(kp))return LIVE.get(kp);   // knockout: match by resolved team pair if the kickoff time drifts
   return null;
 }
 // External link to ESPN: exact match page when ESPN has the game, else that day's WC scoreboard.
@@ -773,7 +774,21 @@ const SHORTNM={"Bosnia and Herzegovina":"Bosnia & H.","South Africa":"S. Africa"
   "South Korea":"S. Korea","New Zealand":"N. Zealand","Saudi Arabia":"Saudi Arabia"};
 function shortNm(t){return SHORTNM[t]||t;}
 function matchByNum(n){return M.find(x=>x.n===n);}
-function koLive(m){return m?LIVE.get("t|"+Date.parse(m.utc))||null:null;}
+// A knockout fixture's expected team-pair key, resolved from SEED/THIRD (no live data),
+// so a score still attaches if ESPN's kickoff time drifts from our stored time.
+function koPair(m){
+  if(!m||!m.b)return null;
+  const resolve=tok=>{const nm=slotName(tok);if(nm)return canonTeam(nm)||nm;
+    const s=thirdSide(m,tok);return s?(s.our||s.name):null;};
+  const a=resolve(m.a),b=resolve(m.b);
+  if(!a||!b)return null;
+  return "p|"+[a,b].sort().join("~");
+}
+function koLive(m){
+  if(!m)return null;
+  const t=LIVE.get("t|"+Date.parse(m.utc));if(t)return t;
+  const kp=koPair(m);return (kp&&LIVE.get(kp))||null;
+}
 function groupEntries(letter){
   const grp=STANDINGS.find(s=>(s.name||"")==="Group "+letter);
   if(!grp||!grp.standings)return null;
