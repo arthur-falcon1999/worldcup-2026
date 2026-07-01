@@ -149,6 +149,12 @@
   .teams .kopair a.team{border-bottom-color:transparent}
   .teams .koor{color:var(--muted);font-weight:400;font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin:0 1px}
   .meta{font-size:12px;color:var(--muted);margin-top:3px}
+  .goals{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin-top:6px;font-size:13px}
+  .goals .glbl{color:var(--muted);font-size:12px;margin-right:2px}
+  .goal{display:inline-flex;align-items:center;white-space:nowrap;font-weight:600;color:var(--text)}
+  .goal .flag{font-size:14px;margin-right:3px}
+  .goal .gmin{color:var(--muted);font-weight:400;margin-left:4px}
+  .goal.og .gname{font-style:italic}
   .badge{justify-self:end;text-align:right}
   .stage{display:inline-block;padding:3px 9px;border-radius:8px;font-size:11px;font-weight:700;
     background:var(--panel2);border:1px solid var(--line);color:var(--muted);white-space:nowrap}
@@ -510,7 +516,7 @@ async function fetchLive(){
   for(const d of days){
     try{const r=await fetch(base+d);if(!r.ok)continue;const j=await r.json();ok=true;buildLive(j.events,fresh);}catch(e){}
   }
-  if(ok){LIVE=fresh;stampLive();render();if(view==="usa")renderUSA();if(view==="bracket")renderBracket();if(view==="leaders")aggregateStats();}
+  if(ok){LIVE=fresh;stampLive();render();if(view==="usa")renderUSA();if(view==="bracket")renderBracket();if(view==="leaders"||view==="schedule")aggregateStats();}
 }
 // One-time backfill: fetch scores for every tournament day already finished
 // (older than the live window), so past results show up — not just recent games.
@@ -523,7 +529,7 @@ async function fetchPast(){
   }
   if(PAST.size){
     for(const [k,v] of PAST){if(!LIVE.has(k))LIVE.set(k,v);}   // fold into current view and repaint
-    render();if(view==="usa")renderUSA();if(view==="bracket")renderBracket();if(view==="leaders")aggregateStats();
+    render();if(view==="usa")renderUSA();if(view==="bracket")renderBracket();if(view==="leaders"||view==="schedule")aggregateStats();
   }
 }
 function stampLive(){
@@ -551,6 +557,17 @@ function matchPasses(m){
   return m.s===activeFilter;
 }
 
+// The goal list shown under a game: each scorer with their minute, in order,
+// flagged by the scoring team. Own goals italicised & tagged; penalties tagged.
+function goalsLine(goals){
+  const items=goals.map(g=>{
+    const our=canonTeam(g.team),fl=our?flag(our):"";
+    const tag=g.og?" (OG)":(g.pen?" (pen)":"");
+    return `<span class="goal${g.og?" og":""}">${fl}<span class="gname">${g.name}</span>`+
+      `<span class="gmin">${g.min}${tag}</span></span>`;
+  }).join("");
+  return `<div class="goals"><span class="glbl">⚽</span>${items}</div>`;
+}
 // One match card.
 function matchCard(m){
   const d=new Date(m.utc);
@@ -568,10 +585,12 @@ function matchCard(m){
   const ko=isKO(m.s)?" ko":"";
   const url=espnUrl(m,live);
   const hint=(live&&live.id)?"Open on ESPN ↗":"ESPN scoreboard ↗";
+  const goals=(live&&live.id&&(live.state==="post"||live.state==="in"))?GAME_GOALS.get(live.id):null;
+  const goalsHtml=(goals&&goals.length)?goalsLine(goals):"";
   return `<div class="match${live&&live.state==="in"?" livematch":""}" data-espn="${url}" title="${hint}">
       <span class="openhint">${hint}</span>
       ${timeCell}
-      <div><div class="teams">${teams}</div><div class="meta">📍 ${m.v} · Match ${m.n}</div></div>
+      <div><div class="teams">${teams}</div>${goalsHtml}<div class="meta">📍 ${m.v} · Match ${m.n}</div></div>
       <div class="badge"><span class="stage${ko}">${m.s}</span></div>
     </div>`;
 }
@@ -1108,6 +1127,26 @@ let aggState="idle";          // idle | loading | ready | error
 let aggSig="";                // signature of the games last folded in (id + final flags)
 let aggProg={done:0,total:0};
 const GAME_TALLY=new Map();    // eventId -> {final, players:Map(athleteId -> per-game tally)}
+const GAME_GOALS=new Map();    // eventId -> [{name,min,team,pen,og,ord}] chronological match goals
+// Pull each game's goals (scorer + minute) from the summary feed's keyEvents.
+// Penalty-shootout kicks are skipped — they decide the tie but aren't match goals.
+function parseGoals(j){
+  const out=[];
+  for(const k of (j.keyEvents||[])){
+    const ty=k.type||{};
+    if(!(ty.type==="goal"||k.scoringPlay===true||/goal/i.test(ty.text||"")))continue;
+    if(k.shootout)continue;
+    const txt=k.text||k.shortText||"";
+    const og=/own goal/i.test(txt)||/own goal/i.test(ty.text||"");
+    const pen=!og&&/penalt/i.test(txt);
+    const ath=k.participants&&k.participants[0]&&k.participants[0].athlete;
+    const name=(ath&&ath.displayName)||(k.shortText||"").replace(/\s*Goal\s*$/i,"").trim()||"Goal";
+    out.push({name,min:(k.clock&&k.clock.displayValue)||"",team:(k.team&&k.team.displayName)||"",og,pen,
+      ord:(k.clock&&typeof k.clock.value==="number")?k.clock.value:1e9});
+  }
+  out.sort((a,b)=>a.ord-b.ord);
+  return out;
+}
 // Finished (post) and in-progress (in) games, each tagged with whether it's final.
 function relevantEvents(){
   const seen=new Map();
@@ -1171,14 +1210,19 @@ async function aggregateStats(force){
         const r=await fetch(base+e.id);if(!r.ok)throw 0;
         const j=await r.json();
         GAME_TALLY.set(e.id,{final:e.final,players:tallyGame(j,e.final)});
+        GAME_GOALS.set(e.id,parseGoals(j));
       }catch(err){}
       aggProg.done++;
-      if(view==="leaders"&&aggProg.done%4===0){combineAgg(evs);renderLeaders();}   // progressive repaint
+      if(aggProg.done%4===0){
+        if(view==="leaders"){combineAgg(evs);renderLeaders();}   // progressive repaint
+        else if(view==="schedule")render();                      // goals appear as summaries land
+      }
     }
   }
   await Promise.all(Array.from({length:Math.min(8,need.length||1)},worker));
   combineAgg(evs);aggSig=sig;aggState="ready";leadersStamp=Date.now();
   if(view==="leaders")renderLeaders();
+  else if(view==="schedule")render();
 }
 
 // Official FIFA site link for a player. FIFA doesn't expose a constructable per-player
@@ -1277,7 +1321,7 @@ function setView(v){
   document.getElementById("standings").style.display=stand?"":"none";
   document.getElementById("leaders").style.display=leaders?"":"none";
   document.getElementById("thirds").style.display=thirds?"":"none";
-  if(sched){render();}
+  if(sched){render();aggregateStats();}
   else if(bracket){renderBracket();fetchStandings();}
   else if(stand){renderStandings();fetchStandings();}
   else if(leaders){renderLeaders();fetchLeaders();}
