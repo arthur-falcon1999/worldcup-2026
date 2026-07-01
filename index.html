@@ -116,6 +116,7 @@
   .brteam.brwon .brn{font-weight:700}
   .brteam.brusa .brn{color:var(--accent2);font-weight:700}
   .brmeta{font-size:10px;color:var(--muted);margin-top:3px;text-align:right}
+  .brmeta.brloc{margin-top:2px;color:var(--accent2);white-space:normal;line-height:1.35}
   .br3rd{margin:18px auto 0;max-width:280px;border-top:1px dashed var(--line);padding-top:14px}
   .br3lbl{font-size:12px;color:var(--accent2);font-weight:700;text-align:center;margin-bottom:8px}
   main{max-width:920px;margin:0 auto;padding:8px 16px 60px}
@@ -905,6 +906,7 @@ function brCard(m){
   return `<div class="brcard" data-espn="${espnUrl(m,lv)}" title="Match ${m.n} · open on ESPN ↗">
       ${rows}
       <div class="brmeta">${meta} · ${brDayFmt.format(d)} · ${brWdayFmt.format(d)} ${timeFmt.format(d)} MT</div>
+      <div class="brmeta brloc">📍 ${m.v}</div>
     </div>`;
 }
 // The two matches feeding a knockout tie ("Winners X v Y") → [X,Y], else null.
