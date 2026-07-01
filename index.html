@@ -1204,7 +1204,10 @@ function leaderTable(title,cols,rows){
   });
   return h+`</tbody></table></div></div>`;
 }
-// Rows for goals/assists from the statistics feed.
+// Rows for goals/assists from ESPN's aggregate statistics feed. NOTE: this feed
+// stops refreshing after the group stage (it froze mid-tournament — e.g. showing
+// Messi at 6 goals in 3 MP), so it's used only as a provisional fill until the
+// live roster tally (AGG) is ready. See goalRows()/assistRows().
 function statRows(catKey){
   const block=LEADERS?LEADERS.find(s=>s.name===catKey):null;
   if(!block||!block.leaders)return [];
@@ -1212,11 +1215,32 @@ function statRows(catKey){
     return {name:a.displayName||"—",team:(a.team&&a.team.displayName)||"",
       head:(a.headshot&&a.headshot.href)||"",mp:athStat(a,"appearances"),vals:[Math.round(ld.value||0)]};});
 }
+// Headshots keyed by player name, harvested from whatever the feed did return —
+// lets the roster-tallied rows still show a photo when ESPN has one.
+function headMap(){
+  const m={};
+  for(const blk of (LEADERS||[]))for(const ld of (blk.leaders||[])){
+    const a=ld.athlete||{};if(a.displayName&&a.headshot&&a.headshot.href)m[a.displayName]=a.headshot.href;}
+  return m;
+}
 // Rows from the roster tally, ranked by a scoring function then sliced.
 function aggRows(filter,score,vals){
   if(!AGG)return [];
   return [...AGG.values()].filter(filter).sort((a,b)=>score(b)-score(a)||b.APP-a.APP)
     .slice(0,15).map(e=>({name:e.name,team:e.team,head:"",mp:e.APP,vals:vals(e)}));
+}
+// Goals & assists leaders: prefer the live roster tally (covers every game,
+// including knockouts) and fall back to ESPN's aggregate feed only while the
+// tally is still loading. Attach a feed headshot when we have one.
+function goalRows(){
+  if(!AGG)return statRows("goalsLeaders");
+  const hm=headMap(),rows=aggRows(e=>e.G>0,e=>e.G,e=>[e.G]);
+  rows.forEach(r=>{if(hm[r.name])r.head=hm[r.name];});return rows;
+}
+function assistRows(){
+  if(!AGG)return statRows("assistsLeaders");
+  const hm=headMap(),rows=aggRows(e=>e.A>0,e=>e.A,e=>[e.A]);
+  rows.forEach(r=>{if(hm[r.name])r.head=hm[r.name];});return rows;
 }
 function renderLeaders(){
   const host=document.getElementById("leaders");
@@ -1226,8 +1250,8 @@ function renderLeaders(){
   const stamp=leadersStamp?` · updated ${timeFmt.format(new Date(leadersStamp))} MT`:``;
   let html=`<div class="leadnote">Individual tournament leaders, live from ESPN — refreshes automatically${stamp}. <b>MP</b> = matches played; top 15 per category.`+
     (aggState==="loading"?` <span class="aggwait">⏳ Tallying keepers, cards & shots from match data… (${aggProg.done}/${aggProg.total} games)</span>`:``)+`</div>`;
-  html+=leaderTable("⚽ Top goal scorers",[{label:"G",full:"Goals"}],statRows("goalsLeaders"));
-  html+=leaderTable("🅰️ Most assists",[{label:"A",full:"Assists"}],statRows("assistsLeaders"));
+  html+=leaderTable("⚽ Top goal scorers",[{label:"G",full:"Goals"}],goalRows());
+  html+=leaderTable("🅰️ Most assists",[{label:"A",full:"Assists"}],assistRows());
   html+=leaderTable("🎯 Shots on target",[{label:"SOT",full:"Shots on target"},{label:"G",full:"Goals"}],
     aggRows(e=>e.SOG>0,e=>e.SOG,e=>[e.SOG,e.G]));
   html+=leaderTable("🧤 Top goalkeepers",[{label:"CS",full:"Clean sheets"},{label:"SV",full:"Saves"}],
