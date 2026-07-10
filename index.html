@@ -194,7 +194,7 @@
 <header>
   <h1>🏆 FIFA World Cup 2026</h1>
   <div class="sub">USA · Canada · Mexico — 48 teams, 104 matches</div>
-  <div class="tz">🕐 All times shown in Mountain Time (Denver, MDT)</div>
+  <div class="tz">🕐 All times shown in Mountain Time (Denver, MDT) · <span style="opacity:.6">build B2 (Mexico-out)</span></div>
   <div class="countdown" id="countdown"></div>
   <div class="livestatus" id="livestatus"></div>
 </header>
@@ -477,6 +477,9 @@ function feederPair(n){
   const out=koOutcome(n);
   if(out&&out.winner)return `<span class="kopair">${koSideHtml(out.winner)}</span>`;
   const s=bracketSides(fm);
+  const aOut=isEliminated(s.a),bOut=isEliminated(s.b);
+  if(aOut&&!bOut)return `<span class="kopair">${koSideHtml(s.b,s.lb)}</span>`;
+  if(bOut&&!aOut)return `<span class="kopair">${koSideHtml(s.a,s.la)}</span>`;
   return `<span class="kopair">${koSideHtml(s.a,s.la)}<span class="koor">or</span>${koSideHtml(s.b,s.lb)}</span>`;
 }
 // A Round-of-16 card ("Winners X v Y") → the four teams that could meet, grouped by side.
@@ -783,6 +786,14 @@ function koSeed(n){
   const mk=nm=>({name:nm,our:canonTeam(nm)||nm});
   return {winner:mk(r.w),loser:mk(r.l)};
 }
+// Teams out of the tournament — a belt-and-suspenders layer so an eliminated side is
+// never previewed as a "possible" future opponent, even if the live feed is slow to
+// resolve the tie it went out in. The actual game it lost still shows (via live/SEED).
+const ELIMINATED=new Set(["Mexico"]);
+function isEliminated(side){
+  if(!side)return false;
+  return ELIMINATED.has(side.our)||ELIMINATED.has(side.name);
+}
 const brDayFmt=new Intl.DateTimeFormat("en-US",{timeZone:TZ,month:"short",day:"numeric"});
 const brWdayFmt=new Intl.DateTimeFormat("en-US",{timeZone:TZ,weekday:"short"});
 const SHORTNM={"Bosnia and Herzegovina":"Bosnia & H.","South Africa":"S. Africa",
@@ -896,6 +907,9 @@ function brFeederRow(n){
     if(side&&side.name)return `${flag(side.our||"")}<span class="brn">${shortNm(side.name)}</span>`;
     return `<span class="brn brph">${label||"TBD"}</span>`;
   };
+  const aOut=isEliminated(s.a),bOut=isEliminated(s.b);
+  if(aOut&&!bOut)return `<div class="brteam">${mini(s.b,s.lb)}</div>`;
+  if(bOut&&!aOut)return `<div class="brteam">${mini(s.a,s.la)}</div>`;
   return `<div class="brteam brfeed">${mini(s.a,s.la)}<span class="koor">or</span>${mini(s.b,s.lb)}</div>`;
 }
 // A Round-of-16 side fed by R32 match n: the decided winner once it's played,
