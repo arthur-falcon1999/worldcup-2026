@@ -490,7 +490,9 @@ function koFeedersLine(m){
 function teamsLine(m,live){
   if(!live||live.state==="pre"){
     if(!m.b){
-      if(m.s==="Round of 16"){const fl=koFeedersLine(m);if(fl)return fl;}
+      // Any "Winners X v Y" placeholder (R16 → Final): resolve to the decided
+      // winners once the feeding games are played, else preview the contenders.
+      const fl=koFeedersLine(m);if(fl)return fl;
       return `<span style="color:var(--muted)">${m.a}</span>`;
     }
     // Knockout slots resolve through SEED/standings; group fixtures are real teams already.
