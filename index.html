@@ -771,6 +771,18 @@ function thirdSide(m,tok){
   if(!/^3rd /.test(tok||""))return null;
   const nm=THIRD[m.n];return nm?{name:nm,our:canonTeam(nm)||nm}:null;
 }
+// Confirmed knockout results entered by hand, keyed by match number — advances the
+// right team the moment a tie finishes, for when the live ESPN feed hasn't resolved it
+// yet. {w:winner, l:loser}. Live ESPN, when it reports the game, still wins. Add entries
+// as knockout ties finish.
+const KO={
+  79:{w:"Norway", l:"Mexico"}    // R32, Estadio Azteca — Mexico eliminated
+};
+function koSeed(n){
+  const r=KO[n];if(!r)return null;
+  const mk=nm=>({name:nm,our:canonTeam(nm)||nm});
+  return {winner:mk(r.w),loser:mk(r.l)};
+}
 const brDayFmt=new Intl.DateTimeFormat("en-US",{timeZone:TZ,month:"short",day:"numeric"});
 const brWdayFmt=new Intl.DateTimeFormat("en-US",{timeZone:TZ,weekday:"short"});
 const SHORTNM={"Bosnia and Herzegovina":"Bosnia & H.","South Africa":"S. Africa",
@@ -831,7 +843,7 @@ function koOutcome(n){
     const l=lv.home.winner?lv.away:(lv.away.winner?lv.home:null);
     if(w&&l)return {winner:{name:w.name,our:w.our},loser:{name:l.name,our:l.our}};
   }
-  return null;
+  return koSeed(n);
 }
 function resolveToken(tok){               // a single group-fed R32 side
   let m=/^Winner ([A-Z])$/.exec(tok); if(m)return groupSide(m[1],1);
